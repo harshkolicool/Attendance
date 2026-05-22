@@ -1,5 +1,55 @@
 const mongoose = require("mongoose");
 
+const studentAttendanceSnapshotSchema = new mongoose.Schema(
+    {
+        student: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Student",
+            required: true
+        },
+
+        fullName: {
+            type: String,
+            required: true
+        },
+
+        enrollmentNumber: {
+            type: String,
+            required: true
+        },
+
+        status: {
+            type: String,
+            enum: ["PRESENT", "ABSENT"],
+            required: true
+        },
+
+        attendanceRecord: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "AttendanceRecord"
+        },
+
+        markedAt: {
+            type: Date,
+            default: Date.now
+        },
+
+        verificationMethod: {
+            type: String,
+            enum: ["GEOLOCATION", "MANUAL", "AUTO_ABSENT"],
+            default: "GEOLOCATION"
+        },
+
+        distanceFromClassroom: {
+            type: Number,
+            default: 0
+        }
+    },
+    {
+        _id: false
+    }
+);
+
 const attendanceSessionSchema = new mongoose.Schema({
 
     schedule: {
@@ -85,14 +135,31 @@ const attendanceSessionSchema = new mongoose.Schema({
             type: mongoose.Schema.Types.ObjectId,
             ref: "AttendanceRecord"
         }
-    ]
+    ],
+
+    presentStudents: [studentAttendanceSnapshotSchema],
+
+    absentStudents: [studentAttendanceSnapshotSchema],
+
+    attendanceSummary: {
+        totalPresent: {
+            type: Number,
+            default: 0
+        },
+
+        totalAbsent: {
+            type: Number,
+            default: 0
+        },
+
+        totalMarked: {
+            type: Number,
+            default: 0
+        }
+    }
 
 }, {
     timestamps: true
-});
-
-attendanceSessionSchema.index({
-    schedule: 1
 });
 
 attendanceSessionSchema.index({
@@ -104,9 +171,9 @@ attendanceSessionSchema.index({
 });
 
 attendanceSessionSchema.index({
+    schedule: 1,
     teacher: 1,
-    isActive: 1,
-    status: 1
+    startTime: 1
 });
 
 const AttendanceSession = mongoose.model(

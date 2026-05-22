@@ -4,96 +4,198 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Students | Admin</title>
-    <link rel="stylesheet" href="/css/admin.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+
+    <!-- Admin theme CSS -->
+    <link rel="stylesheet" href="/css/adminTheme.css">
+
+    <!-- Font Awesome Icons -->
+    <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+    >
 </head>
 <body>
 
 <div class="admin-layout">
-    <%- include("partials/sidebar") %>
+
+    <%- include("partials/sidebar", { activePage: activePage }) %>
 
     <main class="admin-main">
+
         <header class="admin-header">
-            <h1>Students</h1>
-            <p>Students are auto-linked to all subjects in their class group</p>
+            <div>
+                <span class="admin-kicker">Admin Panel</span>
+                <h1>Students</h1>
+                <p>Create, search, and manage student accounts.</p>
+            </div>
         </header>
 
-        <% if (message) { %><div class="alert success"><%= message %></div><% } %>
+        <% if (message) { %>
+            <div class="admin-alert <%= message.includes('successfully') ? 'success' : 'error' %>">
+                <%= message %>
+            </div>
+        <% } %>
 
-        <section class="panel">
-            <h2>Add Student</h2>
-            <form action="/admin/students/create" method="POST" class="admin-form row-form">
-                <div class="form-group">
-                    <label>Full Name</label>
-                    <input type="text" name="fullName" required>
+        <section class="admin-card">
+            <div class="admin-card-head">
+                <div>
+                    <h3>Add Student</h3>
+                    <p>Students are automatically assigned subjects from their class group.</p>
                 </div>
-                <div class="form-group">
-                    <label>Email</label>
-                    <input type="email" name="email" required>
-                </div>
-                <div class="form-group">
-                    <label>Password</label>
-                    <input type="password" name="password" required>
-                </div>
-                <div class="form-group">
-                    <label>Enrollment No.</label>
-                    <input type="text" name="enrollmentNumber" required>
-                </div>
-                <div class="form-group">
-                    <label>Department</label>
-                    <input type="text" name="department" required>
-                </div>
-                <div class="form-group">
-                    <label>Semester</label>
-                    <input type="number" name="semester" min="1" max="8" required>
-                </div>
-                <div class="form-group">
-                    <label>Class Group</label>
-                    <select name="classGroupId" required>
-                        <option value="">Select class group</option>
-                        <% classGroups.forEach(function(g) { %>
-                            <option value="<%= g._id %>"><%= g.name %></option>
-                        <% }) %>
-                    </select>
-                </div>
-                <button type="submit" class="btn-primary">Add Student</button>
+            </div>
+
+            <form action="/admin/students/create" method="POST" class="admin-form-grid">
+
+                <input
+                    type="text"
+                    name="fullName"
+                    placeholder="Full Name"
+                    required
+                >
+
+                <input
+                    type="email"
+                    name="email"
+                    placeholder="Email"
+                    required
+                >
+
+                <input
+                    type="password"
+                    name="password"
+                    placeholder="Password"
+                    required
+                >
+
+                <input
+                    type="text"
+                    name="enrollmentNumber"
+                    placeholder="Enrollment Number"
+                    required
+                >
+
+                <input
+                    type="text"
+                    name="department"
+                    placeholder="Department"
+                    required
+                >
+
+                <input
+                    type="number"
+                    name="semester"
+                    placeholder="Semester"
+                    required
+                >
+
+                <select name="classGroupId" required>
+                    <option value="">Select Class Group</option>
+
+                    <% classGroups.forEach(function(group) { %>
+                        <option
+                            value="<%= group._id %>"
+                            data-department="<%= group.department %>"
+                            data-semester="<%= group.semester %>"
+                        >
+                            <%= group.name %> - Sem <%= group.semester %> <%= group.section %>
+                        </option>
+                    <% }) %>
+                </select>
+
+                <button class="admin-primary-btn" type="submit">
+                    <i class="fa-solid fa-plus"></i>
+                    Add Student
+                </button>
             </form>
         </section>
 
-        <section class="panel">
-            <h2>All Students</h2>
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Email</th>
-                        <th>Enrollment</th>
-                        <th>Class Group</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <% if (students.length === 0) { %>
-                        <tr><td colspan="5">No students yet</td></tr>
-                    <% } %>
-                    <% students.forEach(function(item) { %>
-                        <tr>
-                            <td><%= item.fullName %></td>
-                            <td><%= item.email %></td>
-                            <td><%= item.enrollmentNumber %></td>
-                            <td><%= item.classGroup ? item.classGroup.name : "N/A" %></td>
-                            <td>
-                                <form action="/admin/students/<%= item._id %>/delete" method="POST" onsubmit="return confirm('Delete this student?')">
-                                    <button type="submit" class="btn-danger-small">Delete</button>
-                                </form>
-                            </td>
-                        </tr>
-                    <% }) %>
-                </tbody>
-            </table>
+        <section class="admin-card">
+
+            <div class="admin-toolbar">
+                <div class="admin-search-box">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input
+                        type="text"
+                        data-admin-search="students"
+                        placeholder="Search student by name, email, enrollment number, class group or department..."
+                    >
+                </div>
+
+                <span class="admin-count-pill">
+                    <%= students.length %> Students
+                </span>
+            </div>
+
+            <% if (!students || students.length === 0) { %>
+                <div class="admin-empty">
+                    No students found.
+                </div>
+            <% } %>
+
+            <div class="admin-grid">
+
+                <% students.forEach(function(student) { %>
+
+                    <article class="admin-item-card" data-search-group="students">
+
+                        <div class="admin-item-top">
+                            <div class="admin-item-icon">
+                                <i class="fa-solid fa-user-graduate"></i>
+                            </div>
+
+                            <form
+                                action="/admin/students/<%= student._id %>/delete"
+                                method="POST"
+                                onsubmit="return confirmAdminDelete('Delete this student?')"
+                            >
+                                <button class="admin-delete-btn" type="submit">
+                                    Delete
+                                </button>
+                            </form>
+                        </div>
+
+                        <h4><%= student.fullName %></h4>
+                        <p><%= student.email %></p>
+
+                        <div class="admin-meta">
+                            <span class="admin-badge">
+                                <%= student.enrollmentNumber %>
+                            </span>
+
+                            <span class="admin-badge">
+                                <%= student.department %>
+                            </span>
+
+                            <span class="admin-badge">
+                                Sem <%= student.semester %>
+                            </span>
+
+                            <% if (student.classGroup) { %>
+                                <span class="admin-badge">
+                                    <%= student.classGroup.name %>
+                                </span>
+                            <% } else { %>
+                                <span class="admin-badge">
+                                    Class Missing
+                                </span>
+                            <% } %>
+                        </div>
+
+                    </article>
+
+                <% }) %>
+
+            </div>
+
         </section>
+
     </main>
+
 </div>
 
 </body>
+<script src="/js/adminSearch.js"></script>
+<script src="/js/adminSidebarToggle.js"></script>
+<script src="/js/adminValidation.js"></script>
+<script src="/js/adminDynamicForms.js"></script>
 </html>

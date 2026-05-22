@@ -45,20 +45,23 @@ const attendanceRecordSchema = new mongoose.Schema({
     },
 
     latitude: {
-        type: Number
+        type: Number,
+        required: true
     },
 
     longitude: {
-        type: Number
+        type: Number,
+        required: true
     },
 
     distanceFromClassroom: {
-        type: Number
+        type: Number,
+        default: 0
     },
 
     verificationMethod: {
         type: String,
-        enum: ["GEOLOCATION", "MANUAL"],
+        enum: ["GEOLOCATION", "MANUAL", "AUTO_ABSENT"],
         default: "GEOLOCATION"
     },
 

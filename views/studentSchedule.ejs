@@ -16,12 +16,26 @@
     const scheduleList = schedules || [];
     const activeList = activeSessions || [];
     const markedList = markedSessionIds || [];
+    const statusMap = attendanceStatusBySchedule || {};
 
     const now = new Date();
     const currentDate = now.getDate();
     const currentMonth = now.toLocaleString("default", { month: "long" });
 
     const firstName = student.fullName.split(" ")[0];
+
+    let presentCount = 0;
+    let absentCount = 0;
+
+    for (let key in statusMap) {
+        if (statusMap[key].status === "PRESENT") {
+            presentCount++;
+        }
+
+        if (statusMap[key].status === "ABSENT") {
+            absentCount++;
+        }
+    }
 %>
 
 <div class="schedule-layout">
@@ -142,6 +156,11 @@
 
                 <%
                     let activeSession = null;
+                    let attendanceInfo = null;
+
+                    if (statusMap[item._id.toString()]) {
+                        attendanceInfo = statusMap[item._id.toString()];
+                    }
 
                     activeList.forEach(function(session) {
                         if (
@@ -163,10 +182,13 @@
                         }
                     });
 
-                    let isMarked = false;
-
-                    if (activeSession) {
-                        isMarked = markedList.includes(activeSession._id.toString());
+                    if (!attendanceInfo && activeSession) {
+                        if (markedList.includes(activeSession._id.toString())) {
+                            attendanceInfo = {
+                                status: "PRESENT",
+                                sessionId: activeSession._id.toString()
+                            };
+                        }
                     }
                 %>
 
@@ -230,17 +252,8 @@
 
                     <div class="class-action">
 
-                        <% if (!activeSession) { %>
-                            <button class="view-btn" type="button" disabled>
-                                View Details
-                            </button>
+                        <% if (attendanceInfo && attendanceInfo.status === "PRESENT") { %>
 
-                            <span class="status-badge waiting">
-                                <i class="fa-regular fa-clock"></i>
-                                Not Started
-                            </span>
-
-                        <% } else if (isMarked) { %>
                             <button class="view-btn marked" type="button" disabled>
                                 Attendance Marked
                             </button>
@@ -250,7 +263,19 @@
                                 Present
                             </span>
 
-                        <% } else { %>
+                        <% } else if (attendanceInfo && attendanceInfo.status === "ABSENT") { %>
+
+                            <button class="view-btn marked" type="button" disabled>
+                                Marked Absent
+                            </button>
+
+                            <span class="status-badge absent">
+                                <i class="fa-solid fa-circle-xmark"></i>
+                                Absent
+                            </span>
+
+                        <% } else if (activeSession) { %>
+
                             <button
                                 class="view-btn live"
                                 type="button"
@@ -262,6 +287,18 @@
                                 <i class="fa-solid fa-circle-dot"></i>
                                 Live Now
                             </span>
+
+                        <% } else { %>
+
+                            <button class="view-btn" type="button" disabled>
+                                View Details
+                            </button>
+
+                            <span class="status-badge waiting">
+                                <i class="fa-regular fa-clock"></i>
+                                Not Started
+                            </span>
+
                         <% } %>
 
                     </div>
@@ -322,10 +359,30 @@
                 <p><%= activeList.length %> Active</p>
             </div>
         </div>
+
+        <div class="side-card">
+            <div class="side-card-icon green">
+                <i class="fa-solid fa-circle-check"></i>
+            </div>
+            <div>
+                <h4>Present Today</h4>
+                <p><%= presentCount %> Classes</p>
+            </div>
+        </div>
+
+        <div class="side-card">
+            <div class="side-card-icon purple">
+                <i class="fa-solid fa-circle-xmark"></i>
+            </div>
+            <div>
+                <h4>Absent Today</h4>
+                <p><%= absentCount %> Classes</p>
+            </div>
+        </div>
     </aside>
 
 </div>
 
-<script src="/js/studentLocation.js"></script>
 </body>
+<script src="/js/studentLocation.js"></script>
 </html>

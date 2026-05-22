@@ -84,13 +84,6 @@
             </div>
         <% } %>
 
-        <% if (message === "manual_saved") { %>
-            <div class="alert-box success">
-                <i class="fa-solid fa-circle-check"></i>
-                Manual attendance saved successfully.
-            </div>
-        <% } %>
-
         <section class="stats-row">
             <div class="stat-box">
                 <span>Today's Classes</span>
@@ -289,12 +282,11 @@
                                 <% if (manualItem.students.length === 0) { %>
                                     <p class="no-students">No students in this class group.</p>
                                 <% } %>
-
-                                <% manualItem.students.forEach(function(student) { %>
+                                <% manualItem.students.forEach(function(oneStudent) { %>
                                     <label class="student-check">
-                                        <input type="checkbox" name="presentStudents" value="<%= student._id %>">
-                                        <span><%= student.fullName %></span>
-                                        <small><%= student.enrollmentNumber %></small>
+                                        <input type="checkbox" name="presentStudents" value="<%= oneStudent._id %>">
+                                        <span><%= oneStudent.fullName %></span>
+                                        <small><%= oneStudent.enrollmentNumber %></small>
                                     </label>
                                 <% }) %>
                             </div>
@@ -313,7 +305,10 @@
 
     <aside class="teacher-profile-panel">
         <div class="profile-card">
-            <div class="profile-avatar"><%= teacher.fullName.charAt(0).toUpperCase() %></div>
+            <div class="profile-avatar">
+                <%= teacher.fullName.charAt(0).toUpperCase() %>
+            </div>
+
             <div>
                 <h3><%= teacher.fullName %></h3>
                 <p>Teacher Account</p>
@@ -321,7 +316,10 @@
         </div>
 
         <div class="info-card">
-            <div class="info-icon green"><i class="fa-solid fa-signal"></i></div>
+            <div class="info-icon green">
+                <i class="fa-solid fa-signal"></i>
+            </div>
+
             <div>
                 <h4>Live Sessions</h4>
                 <p><%= activeSessions.length %> active</p>
@@ -329,7 +327,10 @@
         </div>
 
         <div class="info-card">
-            <div class="info-icon orange"><i class="fa-solid fa-pen"></i></div>
+            <div class="info-icon orange">
+                <i class="fa-solid fa-pen"></i>
+            </div>
+
             <div>
                 <h4>Manual Pending</h4>
                 <p><%= manualAttendanceList.length %> classes</p>
@@ -337,7 +338,10 @@
         </div>
 
         <div class="info-card">
-            <div class="info-icon purple"><i class="fa-solid fa-calendar-day"></i></div>
+            <div class="info-icon purple">
+                <i class="fa-solid fa-calendar-day"></i>
+            </div>
+
             <div>
                 <h4>Today's Classes</h4>
                 <p><%= schedules.length %> scheduled</p>
@@ -347,6 +351,6 @@
 
 </div>
 
-<script src="/js/teacherLocation.js"></script>
 </body>
+<script src="/js/teacherLocation.js"></script>
 </html>

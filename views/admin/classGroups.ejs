@@ -6,6 +6,10 @@
     <title>Class Groups | Admin</title>
     <link rel="stylesheet" href="/css/admin.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <link rel="stylesheet" href="/css/adminTheme.css">
+    <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 </head>
 <body>
 
@@ -21,24 +25,55 @@
 
         <section class="panel">
             <h2>Add Class Group</h2>
-            <form action="/admin/class-groups/create" method="POST" class="admin-form row-form">
-                <div class="form-group">
+            <form action="/admin/class-groups/create" method="POST" class="admin-form-grid class-group-form">
+
+                <div class="admin-field">
                     <label>Display Name</label>
-                    <input type="text" name="name" placeholder="CSE 4A" required>
+                    <input
+                        type="text"
+                        name="name"
+                        placeholder="CSE 4A"
+                        required
+                    >
                 </div>
-                <div class="form-group">
+
+                <div class="admin-field">
                     <label>Department</label>
-                    <input type="text" name="department" placeholder="CSE" required>
+                    <input
+                        type="text"
+                        name="department"
+                        placeholder="CSE"
+                        required
+                    >
                 </div>
-                <div class="form-group">
+
+                <div class="admin-field">
                     <label>Semester</label>
-                    <input type="number" name="semester" min="1" max="8" required>
+                    <input
+                        type="number"
+                        name="semester"
+                        placeholder="4"
+                        required
+                    >
                 </div>
-                <div class="form-group">
+
+                <div class="admin-field">
                     <label>Section</label>
-                    <input type="text" name="section" placeholder="A" required>
+                    <input
+                        type="text"
+                        name="section"
+                        placeholder="A"
+                        required
+                    >
                 </div>
-                <button type="submit" class="btn-primary">Add Class Group</button>
+
+                <div class="admin-field admin-button-field">
+                    <label>&nbsp;</label>
+                    <button class="admin-primary-btn" type="submit">
+                        Add Class Group
+                    </button>
+                </div>
+
             </form>
         </section>
 
@@ -78,4 +113,6 @@
 </div>
 
 </body>
+<script src="/js/adminValidation.js"></script>
+<script src="/js/adminSidebarToggle.js"></script>
 </html>

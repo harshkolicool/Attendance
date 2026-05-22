@@ -4,93 +4,192 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Teachers | Admin</title>
-    <link rel="stylesheet" href="/css/admin.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+
+    <!-- Admin theme CSS -->
+    <link rel="stylesheet" href="/css/adminTheme.css">
+
+    <!-- Font Awesome Icons -->
+    <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+    >
 </head>
 <body>
 
 <div class="admin-layout">
-    <%- include("partials/sidebar") %>
+
+    <%- include("partials/sidebar", { activePage: activePage }) %>
 
     <main class="admin-main">
+
         <header class="admin-header">
-            <h1>Teachers</h1>
+            <div>
+                <span class="admin-kicker">Admin Panel</span>
+                <h1>Teachers</h1>
+                <p>Create, search, and manage teacher accounts.</p>
+            </div>
         </header>
 
-        <% if (message) { %><div class="alert success"><%= message %></div><% } %>
+        <% if (message) { %>
+            <div class="admin-alert <%= message.includes('successfully') ? 'success' : 'error' %>">
+                <%= message %>
+            </div>
+        <% } %>
 
-        <section class="panel">
-            <h2>Add Teacher</h2>
-            <form action="/admin/teachers/create" method="POST" class="admin-form row-form">
-                <div class="form-group">
-                    <label>Full Name</label>
-                    <input type="text" name="fullName" required>
+        <section class="admin-card">
+            <div class="admin-card-head">
+                <div>
+                    <h3>Add Teacher</h3>
+                    <p>Create teacher or HOD accounts for this college.</p>
                 </div>
-                <div class="form-group">
-                    <label>Email</label>
-                    <input type="email" name="email" required>
-                </div>
-                <div class="form-group">
-                    <label>Password</label>
-                    <input type="password" name="password" required>
-                </div>
-                <div class="form-group">
-                    <label>Employee ID</label>
-                    <input type="text" name="employeeId" required>
-                </div>
-                <div class="form-group">
-                    <label>Department</label>
-                    <input type="text" name="department" required>
-                </div>
-                <div class="form-group">
-                    <label>Role</label>
-                    <select name="role">
-                        <option value="TEACHER">Teacher</option>
-                        <option value="HOD">HOD</option>
-                    </select>
-                </div>
-                <button type="submit" class="btn-primary">Add Teacher</button>
+            </div>
+
+            <form action="/admin/teachers/create" method="POST" class="admin-form-grid">
+                <input
+                    type="text"
+                    name="fullName"
+                    placeholder="Full Name"
+                    required
+                >
+
+                <input
+                    type="email"
+                    name="email"
+                    placeholder="Email"
+                    required
+                >
+
+                <input
+                    type="password"
+                    name="password"
+                    placeholder="Password"
+                    required
+                >
+
+                <input
+                    type="text"
+                    name="employeeId"
+                    placeholder="Employee ID"
+                    required
+                >
+
+                <input
+                    type="text"
+                    name="department"
+                    placeholder="Department"
+                    required
+                >
+
+                <select name="role" required>
+                    <option value="TEACHER">Teacher</option>
+                    <option value="HOD">HOD</option>
+                </select>
+
+                <button class="admin-primary-btn" type="submit">
+                    <i class="fa-solid fa-plus"></i>
+                    Add Teacher
+                </button>
             </form>
         </section>
 
-        <section class="panel">
-            <h2>All Staff</h2>
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Email</th>
-                        <th>Employee ID</th>
-                        <th>Role</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <% if (teachers.length === 0) { %>
-                        <tr><td colspan="5">No teachers yet</td></tr>
-                    <% } %>
-                    <% teachers.forEach(function(item) { %>
-                        <tr>
-                            <td><%= item.fullName %></td>
-                            <td><%= item.email %></td>
-                            <td><%= item.employeeId %></td>
-                            <td><%= item.role %></td>
-                            <td>
-                                <% if (item.role !== "ADMIN") { %>
-                                    <form action="/admin/teachers/<%= item._id %>/delete" method="POST" onsubmit="return confirm('Delete this teacher?')">
-                                        <button type="submit" class="btn-danger-small">Delete</button>
-                                    </form>
-                                <% } else { %>
-                                    <span class="hint">Admin</span>
-                                <% } %>
-                            </td>
-                        </tr>
-                    <% }) %>
-                </tbody>
-            </table>
+        <section class="admin-card">
+
+            <div class="admin-toolbar">
+                <div class="admin-search-box">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input
+                        type="text"
+                        data-admin-search="teachers"
+                        placeholder="Search teacher by name, email, employee ID, department, role or subject..."
+                    >
+                </div>
+
+                <span class="admin-count-pill">
+                    <%= teachers.length %> Teachers
+                </span>
+            </div>
+
+            <% if (!teachers || teachers.length === 0) { %>
+                <div class="admin-empty">
+                    No teachers found.
+                </div>
+            <% } %>
+
+            <div class="admin-grid">
+
+                <% teachers.forEach(function(teacher) { %>
+
+                    <article class="admin-item-card" data-search-group="teachers">
+
+                        <div class="admin-item-top">
+                            <div class="admin-item-icon">
+                                <i class="fa-solid fa-chalkboard-user"></i>
+                            </div>
+
+                            <% if (admin && admin._id && teacher._id.toString() !== admin._id.toString()) { %>
+                                <form
+                                    action="/admin/teachers/<%= teacher._id %>/delete"
+                                    method="POST"
+                                    onsubmit="return confirmAdminDelete('Delete this teacher?')"
+                                >
+                                    <button class="admin-delete-btn" type="submit">
+                                        Delete
+                                    </button>
+                                </form>
+                            <% } %>
+                        </div>
+
+                        <h4><%= teacher.fullName %></h4>
+                        <p><%= teacher.email %></p>
+
+                        <div class="admin-meta">
+                            <span class="admin-badge">
+                                ID: <%= teacher.employeeId %>
+                            </span>
+
+                            <span class="admin-badge">
+                                <%= teacher.department %>
+                            </span>
+
+                            <span class="admin-badge">
+                                <%= teacher.role %>
+                            </span>
+
+                            <% if (teacher.subjects && teacher.subjects.length > 0) { %>
+                                <span class="admin-badge">
+                                    <%= teacher.subjects.length %> Subjects
+                                </span>
+                            <% } else { %>
+                                <span class="admin-badge">
+                                    No Subjects
+                                </span>
+                            <% } %>
+                        </div>
+
+                        <% if (teacher.subjects && teacher.subjects.length > 0) { %>
+                            <div class="admin-meta">
+                                <% teacher.subjects.forEach(function(subject) { %>
+                                    <span class="admin-badge">
+                                        <%= subject.subjectName %>
+                                    </span>
+                                <% }) %>
+                            </div>
+                        <% } %>
+
+                    </article>
+
+                <% }) %>
+
+            </div>
+
         </section>
+
     </main>
+
 </div>
 
 </body>
+<script src="/js/adminValidation.js"></script>
+<script src="/js/adminSearch.js"></script>
+<script src="/js/adminSidebarToggle.js"></script>
 </html>

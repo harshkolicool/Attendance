@@ -1,38 +1,63 @@
-<aside class="admin-sidebar">
+<aside class="admin-sidebar" id="adminSidebar">
+
+    <button class="admin-sidebar-toggle" id="adminSidebarToggle" type="button">
+        <i class="fa-solid fa-bars"></i>
+    </button>
+
     <a href="/admin/dashboard" class="admin-brand">
-        <i class="fa-solid fa-shield-halved"></i>
-        College Admin
+        <div class="admin-brand-icon">
+            <i class="fa-solid fa-shield-halved"></i>
+        </div>
+
+        <div class="admin-brand-text">
+            <h2>Attendify</h2>
+            <p>Admin Panel</p>
+        </div>
     </a>
 
-    <p class="admin-college">College Admin Panel</p>
-
-    <nav class="admin-nav">
+    <nav class="admin-menu">
         <a href="/admin/dashboard" class="<%= activePage === 'dashboard' ? 'active' : '' %>">
-            <i class="fa-solid fa-chart-pie"></i> Dashboard
+            <i class="fa-solid fa-house"></i>
+            <span class="admin-link-text">Dashboard</span>
         </a>
+
         <a href="/admin/class-groups" class="<%= activePage === 'class-groups' ? 'active' : '' %>">
-            <i class="fa-solid fa-users-rectangle"></i> Class Groups
+            <i class="fa-solid fa-layer-group"></i>
+            <span class="admin-link-text">Class Groups</span>
         </a>
+
         <a href="/admin/classrooms" class="<%= activePage === 'classrooms' ? 'active' : '' %>">
-            <i class="fa-solid fa-location-dot"></i> Classrooms
+            <i class="fa-solid fa-door-open"></i>
+            <span class="admin-link-text">Classrooms</span>
         </a>
+
         <a href="/admin/subjects" class="<%= activePage === 'subjects' ? 'active' : '' %>">
-            <i class="fa-solid fa-book"></i> Subjects
+            <i class="fa-solid fa-book"></i>
+            <span class="admin-link-text">Subjects</span>
         </a>
+
         <a href="/admin/teachers" class="<%= activePage === 'teachers' ? 'active' : '' %>">
-            <i class="fa-solid fa-chalkboard-user"></i> Teachers
+            <i class="fa-solid fa-chalkboard-user"></i>
+            <span class="admin-link-text">Teachers</span>
         </a>
+
         <a href="/admin/students" class="<%= activePage === 'students' ? 'active' : '' %>">
-            <i class="fa-solid fa-user-graduate"></i> Students
+            <i class="fa-solid fa-user-graduate"></i>
+            <span class="admin-link-text">Students</span>
         </a>
+
         <a href="/admin/schedules" class="<%= activePage === 'schedules' ? 'active' : '' %>">
-            <i class="fa-solid fa-calendar-days"></i> Schedules
+            <i class="fa-solid fa-calendar-days"></i>
+            <span class="admin-link-text">Schedules</span>
         </a>
     </nav>
 
+    <p class="admin-settings">Settings</p>
+
     <form action="/logout" method="POST">
-        <button type="submit" class="admin-logout">
-            <i class="fa-solid fa-arrow-right-from-bracket"></i> Logout
+        <button class="admin-logout-btn" type="submit">
+            <i class="fa-solid fa-arrow-right-from-bracket"></i>
+            <span class="admin-logout-text">Log Out</span>
         </button>
     </form>
 </aside>

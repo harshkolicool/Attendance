@@ -11,7 +11,8 @@ const AttendanceRecord = require("../models/attendanceRecordSchema");
 
 const {
     getScheduleTimeStatus,
-    getTodayRange
+    getTodayRange,
+    sortSchedulesByTime
 } = require("../utils/scheduleTime");
 
 function isTeacher(req, res, next) {
@@ -143,6 +144,13 @@ router.get("/dashboard", isTeacher, async (req, res) => {
         const now = new Date();
         const todayRange = getTodayRange();
 
+        const teacher = await Teacher.findById(req.user._id)
+            .populate("subjects");
+
+        if (!teacher) {
+            return res.send("Teacher not found");
+        }
+
         const schedules = await Schedule.find({
             teacher: req.user._id,
             college: req.user.college,
@@ -150,15 +158,9 @@ router.get("/dashboard", isTeacher, async (req, res) => {
         })
         .populate("subject")
         .populate("classGroup")
-        .populate("classroom")
-        .sort({ startTime: 1 });
+        .populate("classroom");
 
-        const teacher = await Teacher.findById(req.user._id)
-            .populate("subjects");
-
-        if (!teacher) {
-            return res.send("Teacher not found");
-        }
+        sortSchedulesByTime(schedules);
 
         const classGroups = await ClassGroup.find({
             college: req.user.college,
@@ -283,12 +285,12 @@ router.get("/dashboard", isTeacher, async (req, res) => {
         res.render("teacherDashboard", {
             teacher: teacher,
             subjects: teacher.subjects || [],
-            classGroups: classGroups,
-            classrooms: classrooms,
-            activeSessions: activeSessions,
-            schedules: schedules,
-            scheduleCards: scheduleCards,
-            manualAttendanceList: manualAttendanceList,
+            classGroups: classGroups || [],
+            classrooms: classrooms || [],
+            activeSessions: activeSessions || [],
+            schedules: schedules || [],
+            scheduleCards: scheduleCards || [],
+            manualAttendanceList: manualAttendanceList || [],
             today: today,
             message: getSuccessMessage(req.query.message),
             error: getErrorMessage(req.query.error)
@@ -475,13 +477,15 @@ router.post("/attendance/manual", isTeacher, async (req, res) => {
         });
 
         const recordIds = [];
+        const presentStudentSnapshots = [];
+        const absentStudentSnapshots = [];
 
         for (let i = 0; i < students.length; i++) {
-            const student = students[i];
-            const isPresent = presentIdStrings.includes(student._id.toString());
+            const oneStudent = students[i];
+            const isPresent = presentIdStrings.includes(oneStudent._id.toString());
 
             const record = await AttendanceRecord.create({
-                student: student._id,
+                student: oneStudent._id,
                 attendanceSession: session._id,
                 subject: scheduleItem.subject._id,
                 college: req.user.college,
@@ -499,9 +503,34 @@ router.post("/attendance/manual", isTeacher, async (req, res) => {
             });
 
             recordIds.push(record._id);
+
+            const studentSnapshot = {
+                student: oneStudent._id,
+                fullName: oneStudent.fullName,
+                enrollmentNumber: oneStudent.enrollmentNumber,
+                status: isPresent ? "PRESENT" : "ABSENT",
+                attendanceRecord: record._id,
+                markedAt: new Date(),
+                verificationMethod: "MANUAL",
+                distanceFromClassroom: 0
+            };
+
+            if (isPresent) {
+                presentStudentSnapshots.push(studentSnapshot);
+            } else {
+                absentStudentSnapshots.push(studentSnapshot);
+            }
         }
 
         session.attendanceRecords = recordIds;
+        session.presentStudents = presentStudentSnapshots;
+        session.absentStudents = absentStudentSnapshots;
+
+        session.attendanceSummary.totalPresent = presentStudentSnapshots.length;
+        session.attendanceSummary.totalAbsent = absentStudentSnapshots.length;
+        session.attendanceSummary.totalMarked =
+        presentStudentSnapshots.length + absentStudentSnapshots.length;
+
         await session.save();
 
         res.redirect("/teacher/dashboard?message=manual_saved");
@@ -515,20 +544,87 @@ router.post("/attendance/manual", isTeacher, async (req, res) => {
     }
 });
 
+async function createAbsentRecordsForMissingStudents(session, req) {
+    const students = await Student.find({
+        college: session.college,
+        classGroup: session.classGroup._id ? session.classGroup._id : session.classGroup
+    });
+
+    const existingRecords = await AttendanceRecord.find({
+        attendanceSession: session._id
+    });
+
+    const alreadyMarkedStudentIds = [];
+
+    for (let i = 0; i < existingRecords.length; i++) {
+        alreadyMarkedStudentIds.push(existingRecords[i].student.toString());
+    }
+
+    for (let i = 0; i < students.length; i++) {
+        const oneStudent = students[i];
+
+        if (!alreadyMarkedStudentIds.includes(oneStudent._id.toString())) {
+            const absentRecord = await AttendanceRecord.create({
+                student: oneStudent._id,
+                attendanceSession: session._id,
+                subject: session.subject._id ? session.subject._id : session.subject,
+                college: session.college,
+                classGroup: session.classGroup._id ? session.classGroup._id : session.classGroup,
+                classroom: session.classroom._id ? session.classroom._id : session.classroom,
+                status: "ABSENT",
+                latitude: session.latitude || 0,
+                longitude: session.longitude || 0,
+                distanceFromClassroom: 0,
+                verificationMethod: "AUTO_ABSENT",
+                deviceInfo: {
+                    userAgent: req.headers["user-agent"],
+                    ip: req.ip
+                }
+            });
+
+            session.attendanceRecords.push(absentRecord._id);
+
+            session.absentStudents.push({
+                student: oneStudent._id,
+                fullName: oneStudent.fullName,
+                enrollmentNumber: oneStudent.enrollmentNumber,
+                status: "ABSENT",
+                attendanceRecord: absentRecord._id,
+                markedAt: new Date(),
+                verificationMethod: "AUTO_ABSENT",
+                distanceFromClassroom: 0
+            });
+        }
+    }
+
+    session.attendanceSummary.totalPresent = session.presentStudents.length;
+    session.attendanceSummary.totalAbsent = session.absentStudents.length;
+    session.attendanceSummary.totalMarked =
+        session.presentStudents.length + session.absentStudents.length;
+}
+
 router.post("/attendance/end/:id", isTeacher, async (req, res) => {
     try {
-        await AttendanceSession.findOneAndUpdate(
-            {
-                _id: req.params.id,
-                teacher: req.user._id
-            },
-            {
-                isActive: false,
-                status: "CLOSED",
-                closedAt: new Date(),
-                closedBy: req.user._id
-            }
-        );
+        const session = await AttendanceSession.findOne({
+            _id: req.params.id,
+            teacher: req.user._id
+        })
+        .populate("subject")
+        .populate("classGroup")
+        .populate("classroom");
+
+        if (!session) {
+            return res.send("Attendance session not found");
+        }
+
+        await createAbsentRecordsForMissingStudents(session, req);
+
+        session.isActive = false;
+        session.status = "CLOSED";
+        session.closedAt = new Date();
+        session.closedBy = req.user._id;
+
+        await session.save();
 
         res.redirect("/teacher/dashboard");
 
