@@ -19,19 +19,11 @@ const classroomSchema = new mongoose.Schema({
         required: true
     },
 
-    latitude: {
-        type: Number,
-        required: true
-    },
-
-    longitude: {
-        type: Number,
-        required: true
-    },
-
     radius: {
         type: Number,
-        default: 100
+        default: 100,
+        min: 10,
+        max: 10000
     },
 
     college: {
@@ -58,9 +50,18 @@ const classroomSchema = new mongoose.Schema({
     timestamps: true
 });
 
-const Classroom = mongoose.model(
-    "Classroom",
-    classroomSchema
+classroomSchema.index(
+    {
+        college: 1,
+        classroomName: 1,
+        buildingName: 1,
+        floorNumber: 1
+    },
+    {
+        unique: true
+    }
 );
+
+const Classroom = mongoose.model("Classroom", classroomSchema);
 
 module.exports = Classroom;

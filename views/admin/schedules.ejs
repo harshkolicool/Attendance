@@ -24,17 +24,18 @@
             <div>
                 <span class="admin-kicker">Admin Panel</span>
                 <h1>Schedules</h1>
-                <p>Create weekly timetable with class, subject, teacher and room validation.</p>
+                <p>Create, edit and manage weekly timetable safely.</p>
             </div>
         </header>
 
         <% if (message) { %>
-            <div class="admin-alert <%= message.includes('successfully') ? 'success' : 'error' %>">
+            <div class="admin-alert <%= message.includes('successfully') || message.includes('created') || message.includes('updated') ? 'success' : 'error' %>">
                 <%= message %>
             </div>
         <% } %>
 
         <section class="admin-card">
+
             <div class="admin-card-head">
                 <div>
                     <h3>Add Schedule</h3>
@@ -42,48 +43,73 @@
                 </div>
             </div>
 
-            <div id="scheduleDynamicHint" class="admin-dynamic-hint info">
+            <div class="admin-dynamic-hint js-schedule-hint">
                 Select a class group to load its subjects.
             </div>
 
-            <form action="/admin/schedules/create" method="POST" class="admin-form-grid">
+            <form
+                action="/admin/schedules/create"
+                method="POST"
+                class="admin-form-grid js-schedule-form"
+            >
 
                 <div class="admin-field">
                     <label>Day</label>
                     <select name="day" required>
                         <option value="">Select Day</option>
-
-                        <% days.forEach(function(day) { %>
-                            <option value="<%= day %>">
-                                <%= day %>
-                            </option>
-                        <% }) %>
+                        <option value="Monday">Monday</option>
+                        <option value="Tuesday">Tuesday</option>
+                        <option value="Wednesday">Wednesday</option>
+                        <option value="Thursday">Thursday</option>
+                        <option value="Friday">Friday</option>
+                        <option value="Saturday">Saturday</option>
+                        <option value="Sunday">Sunday</option>
                     </select>
                 </div>
 
                 <div class="admin-field">
                     <label>Start Time</label>
+
+                    <select class="js-start-time-preset" required>
+                        <option value="">Select Start Time</option>
+                    </select>
+
                     <input
-                        type="text"
+                        type="time"
+                        class="admin-custom-time-input js-custom-start-time"
+                        hidden
+                    >
+
+                    <input
+                        type="hidden"
                         name="startTime"
-                        placeholder="09:00 AM"
-                        required
+                        class="js-final-start-time"
                     >
                 </div>
 
                 <div class="admin-field">
                     <label>End Time</label>
+
+                    <select class="js-end-time-preset" required>
+                        <option value="">Select End Time</option>
+                    </select>
+
                     <input
-                        type="text"
+                        type="time"
+                        class="admin-custom-time-input js-custom-end-time"
+                        hidden
+                    >
+
+                    <input
+                        type="hidden"
                         name="endTime"
-                        placeholder="10:00 AM"
-                        required
+                        class="js-final-end-time"
                     >
                 </div>
 
                 <div class="admin-field">
                     <label>Class Group</label>
-                    <select name="classGroupId" required>
+                    <select name="classGroupId" class="js-schedule-class-group" required>
                         <option value="">Select Class Group</option>
 
                         <% classGroups.forEach(function(group) { %>
@@ -100,11 +126,21 @@
 
                 <div class="admin-field">
                     <label>Subject</label>
-                    <select name="subjectId" required>
+                    <select name="subjectId" class="js-schedule-subject" required>
                         <option value="">Select Class Group First</option>
 
                         <% subjects.forEach(function(subject) { %>
                             <%
+                                let subjectClassGroupId = "";
+
+                                if (subject.classGroup) {
+                                    if (subject.classGroup._id) {
+                                        subjectClassGroupId = subject.classGroup._id.toString();
+                                    } else {
+                                        subjectClassGroupId = subject.classGroup.toString();
+                                    }
+                                }
+
                                 let teacherIdList = "";
 
                                 if (subject.teachers && subject.teachers.length > 0) {
@@ -120,12 +156,12 @@
 
                             <option
                                 value="<%= subject._id %>"
-                                data-class-group-id="<%= subject.classGroup ? subject.classGroup._id : '' %>"
+                                data-class-group-id="<%= subjectClassGroupId %>"
                                 data-teacher-ids="<%= teacherIdList %>"
                             >
-                                <%= subject.subjectCode %> - <%= subject.subjectName %>
-                                <% if (subject.classGroup) { %>
-                                    (<%= subject.classGroup.name %>)
+                                <%= subject.subjectName %>
+                                <% if (subject.subjectCode) { %>
+                                    - <%= subject.subjectCode %>
                                 <% } %>
                             </option>
                         <% }) %>
@@ -134,7 +170,7 @@
 
                 <div class="admin-field">
                     <label>Teacher</label>
-                    <select name="teacherId" required>
+                    <select name="teacherId" class="js-schedule-teacher" required>
                         <option value="">Select Subject First</option>
 
                         <% teachers.forEach(function(teacher) { %>
@@ -152,7 +188,7 @@
 
                         <% classrooms.forEach(function(room) { %>
                             <option value="<%= room._id %>">
-                                <%= room.classroomName %> - <%= room.buildingName %>
+                                <%= room.classroomName %> - <%= room.buildingName %> Floor <%= room.floorNumber %>
                             </option>
                         <% }) %>
                     </select>
@@ -167,6 +203,7 @@
                 </div>
 
             </form>
+
         </section>
 
         <section class="admin-card">
@@ -194,7 +231,38 @@
 
             <div class="admin-grid">
 
-                <% schedules.forEach(function(item) { %>
+                <% schedules.forEach(function(schedule) { %>
+
+                    <%
+                        let selectedClassGroupId = "";
+                        let selectedSubjectId = "";
+                        let selectedTeacherId = "";
+                        let selectedClassroomId = "";
+
+                        if (schedule.classGroup) {
+                            selectedClassGroupId = schedule.classGroup._id
+                                ? schedule.classGroup._id.toString()
+                                : schedule.classGroup.toString();
+                        }
+
+                        if (schedule.subject) {
+                            selectedSubjectId = schedule.subject._id
+                                ? schedule.subject._id.toString()
+                                : schedule.subject.toString();
+                        }
+
+                        if (schedule.teacher) {
+                            selectedTeacherId = schedule.teacher._id
+                                ? schedule.teacher._id.toString()
+                                : schedule.teacher.toString();
+                        }
+
+                        if (schedule.classroom) {
+                            selectedClassroomId = schedule.classroom._id
+                                ? schedule.classroom._id.toString()
+                                : schedule.classroom.toString();
+                        }
+                    %>
 
                     <article class="admin-item-card" data-search-group="schedules">
 
@@ -204,7 +272,7 @@
                             </div>
 
                             <form
-                                action="/admin/schedules/<%= item._id %>/delete"
+                                action="/admin/schedules/<%= schedule._id %>/delete"
                                 method="POST"
                                 onsubmit="return confirmAdminDelete('Delete this schedule?')"
                             >
@@ -215,40 +283,236 @@
                         </div>
 
                         <h4>
-                            <% if (item.subject) { %>
-                                <%= item.subject.subjectName %>
+                            <% if (schedule.subject) { %>
+                                <%= schedule.subject.subjectName %>
                             <% } else { %>
                                 Subject Missing
                             <% } %>
                         </h4>
 
                         <p>
-                            <i class="fa-solid fa-clock"></i>
-                            <%= item.day %> · <%= item.startTime %> - <%= item.endTime %>
+                            <%= schedule.day %>
+                            ·
+                            <%= schedule.startTime %> - <%= schedule.endTime %>
                         </p>
 
                         <div class="admin-meta">
-                            <% if (item.teacher) { %>
+                            <span class="admin-badge">
+                                <i class="fa-solid fa-layer-group"></i>
+                                <% if (schedule.classGroup) { %>
+                                    <%= schedule.classGroup.name %>
+                                <% } else { %>
+                                    Class Missing
+                                <% } %>
+                            </span>
+
+                            <span class="admin-badge">
+                                <i class="fa-solid fa-chalkboard-user"></i>
+                                <% if (schedule.teacher) { %>
+                                    <%= schedule.teacher.fullName %>
+                                <% } else { %>
+                                    Teacher Missing
+                                <% } %>
+                            </span>
+
+                            <span class="admin-badge">
+                                <i class="fa-solid fa-door-open"></i>
+                                <% if (schedule.classroom) { %>
+                                    <%= schedule.classroom.classroomName %>
+                                <% } else { %>
+                                    Room Missing
+                                <% } %>
+                            </span>
+                        </div>
+
+                        <div class="admin-meta">
+                            <% if (schedule.subject && schedule.subject.subjectCode) { %>
                                 <span class="admin-badge">
-                                    <i class="fa-solid fa-chalkboard-user"></i>
-                                    <%= item.teacher.fullName %>
+                                    Code: <%= schedule.subject.subjectCode %>
                                 </span>
                             <% } %>
 
-                            <% if (item.classGroup) { %>
+                            <% if (schedule.classroom) { %>
                                 <span class="admin-badge">
-                                    <i class="fa-solid fa-layer-group"></i>
-                                    <%= item.classGroup.name %>
+                                    <%= schedule.classroom.buildingName %>
                                 </span>
-                            <% } %>
 
-                            <% if (item.classroom) { %>
                                 <span class="admin-badge">
-                                    <i class="fa-solid fa-door-open"></i>
-                                    <%= item.classroom.classroomName %>
+                                    Floor <%= schedule.classroom.floorNumber %>
                                 </span>
                             <% } %>
                         </div>
+
+                        <details class="admin-edit-box">
+                            <summary>
+                                <i class="fa-solid fa-pen-to-square"></i>
+                                Edit Schedule
+                            </summary>
+
+                            <form
+                                action="/admin/schedules/<%= schedule._id %>/update"
+                                method="POST"
+                                class="admin-edit-form js-schedule-form"
+                            >
+
+                                <div class="admin-dynamic-hint js-schedule-hint">
+                                    Edit this schedule carefully.
+                                </div>
+
+                                <div class="admin-field">
+                                    <label>Day</label>
+                                    <select name="day" required>
+                                        <% ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].forEach(function(day) { %>
+                                            <option value="<%= day %>" <%= schedule.day === day ? "selected" : "" %>>
+                                                <%= day %>
+                                            </option>
+                                        <% }) %>
+                                    </select>
+                                </div>
+
+                                <div class="admin-field">
+                                    <label>Start Time</label>
+
+                                    <select class="js-start-time-preset" required>
+                                        <option value="">Select Start Time</option>
+                                    </select>
+
+                                    <input
+                                        type="time"
+                                        class="admin-custom-time-input js-custom-start-time"
+                                        hidden
+                                    >
+
+                                    <input
+                                        type="hidden"
+                                        name="startTime"
+                                        class="js-final-start-time"
+                                        value="<%= schedule.startTime %>"
+                                    >
+                                </div>
+
+                                <div class="admin-field">
+                                    <label>End Time</label>
+
+                                    <select class="js-end-time-preset" required>
+                                        <option value="">Select End Time</option>
+                                    </select>
+
+                                    <input
+                                        type="time"
+                                        class="admin-custom-time-input js-custom-end-time"
+                                        hidden
+                                    >
+
+                                    <input
+                                        type="hidden"
+                                        name="endTime"
+                                        class="js-final-end-time"
+                                        value="<%= schedule.endTime %>"
+                                    >
+                                </div>
+
+                                <div class="admin-field">
+                                    <label>Class Group</label>
+                                    <select name="classGroupId" class="js-schedule-class-group" required>
+                                        <option value="">Select Class Group</option>
+
+                                        <% classGroups.forEach(function(group) { %>
+                                            <option
+                                                value="<%= group._id %>"
+                                                data-department="<%= group.department %>"
+                                                data-semester="<%= group.semester %>"
+                                                <%= selectedClassGroupId === group._id.toString() ? "selected" : "" %>
+                                            >
+                                                <%= group.name %> - Sem <%= group.semester %> <%= group.section %>
+                                            </option>
+                                        <% }) %>
+                                    </select>
+                                </div>
+
+                                <div class="admin-field">
+                                    <label>Subject</label>
+                                    <select name="subjectId" class="js-schedule-subject" required>
+                                        <option value="">Select Subject</option>
+
+                                        <% subjects.forEach(function(subject) { %>
+                                            <%
+                                                let subjectClassGroupId = "";
+
+                                                if (subject.classGroup) {
+                                                    if (subject.classGroup._id) {
+                                                        subjectClassGroupId = subject.classGroup._id.toString();
+                                                    } else {
+                                                        subjectClassGroupId = subject.classGroup.toString();
+                                                    }
+                                                }
+
+                                                let teacherIdList = "";
+
+                                                if (subject.teachers && subject.teachers.length > 0) {
+                                                    teacherIdList = subject.teachers.map(function(teacher) {
+                                                        if (teacher._id) {
+                                                            return teacher._id.toString();
+                                                        }
+
+                                                        return teacher.toString();
+                                                    }).join(",");
+                                                }
+                                            %>
+
+                                            <option
+                                                value="<%= subject._id %>"
+                                                data-class-group-id="<%= subjectClassGroupId %>"
+                                                data-teacher-ids="<%= teacherIdList %>"
+                                                <%= selectedSubjectId === subject._id.toString() ? "selected" : "" %>
+                                            >
+                                                <%= subject.subjectName %>
+                                                <% if (subject.subjectCode) { %>
+                                                    - <%= subject.subjectCode %>
+                                                <% } %>
+                                            </option>
+                                        <% }) %>
+                                    </select>
+                                </div>
+
+                                <div class="admin-field">
+                                    <label>Teacher</label>
+                                    <select name="teacherId" class="js-schedule-teacher" required>
+                                        <option value="">Select Teacher</option>
+
+                                        <% teachers.forEach(function(teacher) { %>
+                                            <option
+                                                value="<%= teacher._id %>"
+                                                <%= selectedTeacherId === teacher._id.toString() ? "selected" : "" %>
+                                            >
+                                                <%= teacher.fullName %> - <%= teacher.department %>
+                                            </option>
+                                        <% }) %>
+                                    </select>
+                                </div>
+
+                                <div class="admin-field">
+                                    <label>Classroom</label>
+                                    <select name="classroomId" required>
+                                        <option value="">Select Classroom</option>
+
+                                        <% classrooms.forEach(function(room) { %>
+                                            <option
+                                                value="<%= room._id %>"
+                                                <%= selectedClassroomId === room._id.toString() ? "selected" : "" %>
+                                            >
+                                                <%= room.classroomName %> - <%= room.buildingName %> Floor <%= room.floorNumber %>
+                                            </option>
+                                        <% }) %>
+                                    </select>
+                                </div>
+
+                                <button class="admin-primary-btn" type="submit">
+                                    Save Changes
+                                </button>
+
+                            </form>
+                        </details>
 
                     </article>
 
@@ -264,7 +528,8 @@
 
 <script src="/js/adminSearch.js"></script>
 <script src="/js/adminSidebarToggle.js"></script>
+<script src="/js/adminScheduleTimes.js"></script>
+<script src="/js/adminScheduleForm.js"></script>
 <script src="/js/adminValidation.js"></script>
-<script src="/js/adminDynamicForms.js"></script>
 </body>
 </html>

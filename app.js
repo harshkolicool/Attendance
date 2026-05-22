@@ -3,6 +3,7 @@ const path = require("path");
 const session = require("express-session");
 const passport = require("passport");
 
+
 const connectDB = require("./config/db");
 require("./config/passport");
 
@@ -10,6 +11,8 @@ const authRoutes = require("./routes/authRoutes");
 const teacherRoutes = require("./routes/teacherRoutes");
 const studentRoutes = require("./routes/studentRoutes");
 const adminRoutes = require("./routes/adminRoutes");
+const collegeRegistrationRoutes = require("./routes/collegeRegistrationRoutes");
+const platformAdminRoutes = require("./routes/platformAdminRoutes");
 
 const app = express();
 
@@ -33,6 +36,14 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 app.use("/", authRoutes);
+app.use("/", collegeRegistrationRoutes);
+app.use("/", platformAdminRoutes);
+app.use("/teacher", teacherRoutes);
+app.use("/student", studentRoutes);
+app.use("/admin", adminRoutes);
+
+app.use("/", authRoutes);
+app.use("/", collegeRegistrationRoutes);
 app.use("/teacher", teacherRoutes);
 app.use("/student", studentRoutes);
 app.use("/admin", adminRoutes);

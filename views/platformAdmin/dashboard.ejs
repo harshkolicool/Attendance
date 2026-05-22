@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Platform Admin Dashboard | Attendify</title>
+
+    <link rel="stylesheet" href="/css/platformAdmin.css">
+
+    <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+    >
+</head>
+<body>
+
+<div class="platform-layout">
+
+    <aside class="platform-sidebar">
+        <div class="platform-logo">
+            <i class="fa-solid fa-shield-halved"></i>
+            <div>
+                <h2>Attendify</h2>
+                <p>Super Admin</p>
+            </div>
+        </div>
+
+        <nav>
+            <a class="<%= activePage === 'dashboard' ? 'active' : '' %>" href="/platform-admin/dashboard">
+                <i class="fa-solid fa-chart-line"></i>
+                Dashboard
+            </a>
+
+            <a class="<%= activePage === 'requests' ? 'active' : '' %>" href="/platform-admin/requests?status=PENDING">
+                <i class="fa-solid fa-building-circle-check"></i>
+                College Requests
+            </a>
+        </nav>
+
+        <form action="/platform-admin/logout" method="POST">
+            <button class="platform-logout-btn" type="submit">
+                <i class="fa-solid fa-right-from-bracket"></i>
+                Logout
+            </button>
+        </form>
+    </aside>
+
+    <main class="platform-main">
+
+        <header class="platform-header">
+            <div>
+                <span>Platform Admin</span>
+                <h1>Dashboard</h1>
+                <p>Review college registration activity.</p>
+            </div>
+
+            <a href="/platform-admin/requests?status=PENDING" class="platform-primary-link">
+                Pending Requests
+            </a>
+        </header>
+
+        <% if (flash) { %>
+            <div class="platform-alert <%= flash.type %>">
+                <strong><%= flash.title %></strong>
+                <p><%= flash.message %></p>
+            </div>
+        <% } %>
+
+        <section class="platform-stats-grid">
+
+            <div class="platform-stat-card">
+                <i class="fa-solid fa-hourglass-half"></i>
+                <h3><%= pendingRequestsCount %></h3>
+                <p>Pending Requests</p>
+            </div>
+
+            <div class="platform-stat-card">
+                <i class="fa-solid fa-circle-check"></i>
+                <h3><%= approvedRequestsCount %></h3>
+                <p>Approved Requests</p>
+            </div>
+
+            <div class="platform-stat-card">
+                <i class="fa-solid fa-circle-xmark"></i>
+                <h3><%= rejectedRequestsCount %></h3>
+                <p>Rejected Requests</p>
+            </div>
+
+            <div class="platform-stat-card">
+                <i class="fa-solid fa-building-columns"></i>
+                <h3><%= collegesCount %></h3>
+                <p>Total Colleges</p>
+            </div>
+
+        </section>
+
+        <section class="platform-card">
+
+            <div class="platform-card-head">
+                <div>
+                    <h2>Recent Requests</h2>
+                    <p>Latest college registration requests.</p>
+                </div>
+
+                <a href="/platform-admin/requests" class="platform-small-link">
+                    View All
+                </a>
+            </div>
+
+            <% if (!recentRequests || recentRequests.length === 0) { %>
+                <div class="platform-empty">
+                    No registration requests found.
+                </div>
+            <% } %>
+
+            <div class="platform-request-list">
+                <% recentRequests.forEach(function(request) { %>
+
+                    <article class="platform-request-item">
+                        <div>
+                            <h3><%= request.collegeName %></h3>
+                            <p>
+                                <%= request.city %>, <%= request.state %>
+                                · Admin: <%= request.adminEmail %>
+                            </p>
+                        </div>
+
+                        <span class="platform-status <%= request.status.toLowerCase() %>">
+                            <%= request.status %>
+                        </span>
+                    </article>
+
+                <% }) %>
+            </div>
+
+        </section>
+
+    </main>
+
+</div>
+
+</body>
+</html>

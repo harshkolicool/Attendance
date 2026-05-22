@@ -5,10 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Students | Admin</title>
 
-    <!-- Admin theme CSS -->
     <link rel="stylesheet" href="/css/adminTheme.css">
 
-    <!-- Font Awesome Icons -->
     <link
         rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
@@ -26,7 +24,7 @@
             <div>
                 <span class="admin-kicker">Admin Panel</span>
                 <h1>Students</h1>
-                <p>Create, search, and manage student accounts.</p>
+                <p>Create, search, edit and manage student accounts.</p>
             </div>
         </header>
 
@@ -35,6 +33,97 @@
                 <%= message %>
             </div>
         <% } %>
+
+        <section class="admin-card admin-csv-card">
+            <div class="admin-card-head">
+                <div>
+                    <h3>Import / Export Students</h3>
+                    <p>Upload students using CSV or export existing students.</p>
+                </div>
+            </div>
+
+            <% if (csvImportResult) { %>
+                <div class="admin-csv-result <%= csvImportResult.type %>">
+                    <strong><%= csvImportResult.title %></strong>
+                    <p><%= csvImportResult.message %></p>
+
+                    <% if (csvImportResult.errors && csvImportResult.errors.length > 0) { %>
+                        <ul>
+                            <% csvImportResult.errors.forEach(function(error) { %>
+                                <li><%= error %></li>
+                            <% }) %>
+                        </ul>
+                    <% } %>
+                </div>
+            <% } %>
+
+            <div class="admin-csv-actions">
+
+                <form
+                    action="/admin/students/import"
+                    method="POST"
+                    enctype="multipart/form-data"
+                    class="admin-csv-import-form"
+                >
+                    <div class="admin-file-upload">
+                        <input
+                            type="file"
+                            id="studentsCsvInput"
+                            name="studentsCsv"
+                            accept=".csv,text/csv"
+                            required
+                        >
+
+                        <label for="studentsCsvInput" class="admin-file-drop">
+                            <span class="admin-file-icon">
+                                <i class="fa-solid fa-file-csv"></i>
+                            </span>
+
+                            <span class="admin-file-text">
+                                <strong id="studentsCsvFileName">Choose CSV file</strong>
+                                <small>Only .csv file, max 2MB</small>
+                            </span>
+
+                            <span class="admin-file-browse">
+                                Browse
+                            </span>
+                        </label>
+                    </div>
+
+                    <button class="admin-primary-btn admin-import-btn" type="submit">
+                        <i class="fa-solid fa-file-import"></i>
+                        Import Students
+                    </button>
+                </form>
+
+                <div class="admin-csv-buttons">
+                    <a href="/admin/students/import-template" class="admin-secondary-btn">
+                        <i class="fa-solid fa-download"></i>
+                        Download CSV Format
+                    </a>
+
+                    <a href="/admin/students/export" class="admin-secondary-btn">
+                        <i class="fa-solid fa-file-export"></i>
+                        Export Students
+                    </a>
+                </div>
+
+            </div>
+
+            <div class="admin-csv-help">
+                <div class="admin-csv-help-title">
+                    <i class="fa-solid fa-circle-info"></i>
+                    <strong>CSV Format</strong>
+                </div>
+
+                <code>fullName,email,password,enrollmentNumber,department,semester,section</code>
+
+                <p>
+                    Department, semester and section must match an existing class group.
+                    Password is imported for first login and is stored hashed.
+                </p>
+            </div>
+        </section>
 
         <section class="admin-card">
             <div class="admin-card-head">
@@ -46,66 +135,60 @@
 
             <form action="/admin/students/create" method="POST" class="admin-form-grid">
 
-                <input
-                    type="text"
-                    name="fullName"
-                    placeholder="Full Name"
-                    required
-                >
+                <div class="admin-field">
+                    <label>Full Name</label>
+                    <input type="text" name="fullName" placeholder="Harsh Koli" required>
+                </div>
 
-                <input
-                    type="email"
-                    name="email"
-                    placeholder="Email"
-                    required
-                >
+                <div class="admin-field">
+                    <label>Email</label>
+                    <input type="email" name="email" placeholder="student@gmail.com" required>
+                </div>
 
-                <input
-                    type="password"
-                    name="password"
-                    placeholder="Password"
-                    required
-                >
+                <div class="admin-field">
+                    <label>Password</label>
+                    <input type="password" name="password" placeholder="Minimum 6 characters" required>
+                </div>
 
-                <input
-                    type="text"
-                    name="enrollmentNumber"
-                    placeholder="Enrollment Number"
-                    required
-                >
+                <div class="admin-field">
+                    <label>Enrollment Number</label>
+                    <input type="text" name="enrollmentNumber" placeholder="22BCS101" required>
+                </div>
 
-                <input
-                    type="text"
-                    name="department"
-                    placeholder="Department"
-                    required
-                >
+                <div class="admin-field">
+                    <label>Department</label>
+                    <input type="text" name="department" placeholder="CSE" required>
+                </div>
 
-                <input
-                    type="number"
-                    name="semester"
-                    placeholder="Semester"
-                    required
-                >
+                <div class="admin-field">
+                    <label>Semester</label>
+                    <input type="number" name="semester" placeholder="4" min="1" max="12" required>
+                </div>
 
-                <select name="classGroupId" required>
-                    <option value="">Select Class Group</option>
+                <div class="admin-field">
+                    <label>Class Group</label>
+                    <select name="classGroupId" required>
+                        <option value="">Select Class Group</option>
 
-                    <% classGroups.forEach(function(group) { %>
-                        <option
-                            value="<%= group._id %>"
-                            data-department="<%= group.department %>"
-                            data-semester="<%= group.semester %>"
-                        >
-                            <%= group.name %> - Sem <%= group.semester %> <%= group.section %>
-                        </option>
-                    <% }) %>
-                </select>
+                        <% classGroups.forEach(function(group) { %>
+                            <option
+                                value="<%= group._id %>"
+                                data-department="<%= group.department %>"
+                                data-semester="<%= group.semester %>"
+                            >
+                                <%= group.name %> - Sem <%= group.semester %> <%= group.section %>
+                            </option>
+                        <% }) %>
+                    </select>
+                </div>
 
-                <button class="admin-primary-btn" type="submit">
-                    <i class="fa-solid fa-plus"></i>
-                    Add Student
-                </button>
+                <div class="admin-field admin-button-field">
+                    <label>&nbsp;</label>
+                    <button class="admin-primary-btn" type="submit">
+                        <i class="fa-solid fa-plus"></i>
+                        Add Student
+                    </button>
+                </div>
             </form>
         </section>
 
@@ -158,28 +241,112 @@
                         <p><%= student.email %></p>
 
                         <div class="admin-meta">
-                            <span class="admin-badge">
-                                <%= student.enrollmentNumber %>
-                            </span>
-
-                            <span class="admin-badge">
-                                <%= student.department %>
-                            </span>
-
-                            <span class="admin-badge">
-                                Sem <%= student.semester %>
-                            </span>
+                            <span class="admin-badge"><%= student.enrollmentNumber %></span>
+                            <span class="admin-badge"><%= student.department %></span>
+                            <span class="admin-badge">Sem <%= student.semester %></span>
 
                             <% if (student.classGroup) { %>
-                                <span class="admin-badge">
-                                    <%= student.classGroup.name %>
-                                </span>
+                                <span class="admin-badge"><%= student.classGroup.name %></span>
                             <% } else { %>
-                                <span class="admin-badge">
-                                    Class Missing
-                                </span>
+                                <span class="admin-badge">Class Missing</span>
                             <% } %>
                         </div>
+
+                        <details class="admin-edit-box">
+                            <summary>
+                                <i class="fa-solid fa-pen-to-square"></i>
+                                Edit Student
+                            </summary>
+
+                            <form
+                                action="/admin/students/<%= student._id %>/update"
+                                method="POST"
+                                class="admin-edit-form"
+                            >
+                                <div class="admin-field">
+                                    <label>Full Name</label>
+                                    <input
+                                        type="text"
+                                        name="fullName"
+                                        value="<%= student.fullName %>"
+                                        required
+                                    >
+                                </div>
+
+                                <div class="admin-field">
+                                    <label>Email</label>
+                                    <input
+                                        type="email"
+                                        name="email"
+                                        value="<%= student.email %>"
+                                        required
+                                    >
+                                </div>
+
+                                <div class="admin-field">
+                                    <label>New Password</label>
+                                    <input
+                                        type="password"
+                                        name="password"
+                                        placeholder="Leave blank to keep old password"
+                                    >
+                                </div>
+
+                                <div class="admin-field">
+                                    <label>Enrollment Number</label>
+                                    <input
+                                        type="text"
+                                        name="enrollmentNumber"
+                                        value="<%= student.enrollmentNumber %>"
+                                        required
+                                    >
+                                </div>
+
+                                <div class="admin-field">
+                                    <label>Department</label>
+                                    <input
+                                        type="text"
+                                        name="department"
+                                        value="<%= student.department %>"
+                                        required
+                                    >
+                                </div>
+
+                                <div class="admin-field">
+                                    <label>Semester</label>
+                                    <input
+                                        type="number"
+                                        name="semester"
+                                        value="<%= student.semester %>"
+                                        min="1"
+                                        max="12"
+                                        required
+                                    >
+                                </div>
+
+                                <div class="admin-field">
+                                    <label>Class Group</label>
+                                    <select name="classGroupId" required>
+                                        <option value="">Select Class Group</option>
+
+                                        <% classGroups.forEach(function(group) { %>
+                                            <option
+                                                value="<%= group._id %>"
+                                                data-department="<%= group.department %>"
+                                                data-semester="<%= group.semester %>"
+                                                <%= student.classGroup && student.classGroup._id.toString() === group._id.toString() ? "selected" : "" %>
+                                            >
+                                                <%= group.name %> - Sem <%= group.semester %> <%= group.section %>
+                                            </option>
+                                        <% }) %>
+                                    </select>
+                                </div>
+
+                                <button class="admin-primary-btn" type="submit">
+                                    Save Changes
+                                </button>
+                            </form>
+                        </details>
 
                     </article>
 
@@ -193,9 +360,9 @@
 
 </div>
 
-</body>
 <script src="/js/adminSearch.js"></script>
 <script src="/js/adminSidebarToggle.js"></script>
 <script src="/js/adminValidation.js"></script>
 <script src="/js/adminDynamicForms.js"></script>
+</body>
 </html>

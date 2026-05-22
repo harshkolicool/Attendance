@@ -658,6 +658,546 @@ button[disabled] {
     cursor: not-allowed;
 }
 
+
+/* ================= ADMIN EDIT FORMS ================= */
+
+.admin-edit-box {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid #e5e7eb;
+}
+
+.admin-edit-box summary {
+    list-style: none;
+    cursor: pointer;
+    color: #2563eb;
+    font-size: 14px;
+    font-weight: 900;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.admin-edit-box summary::-webkit-details-marker {
+    display: none;
+}
+
+.admin-edit-box summary:hover {
+    color: #1d4ed8;
+}
+
+.admin-edit-form {
+    margin-top: 16px;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+}
+
+.admin-edit-form .admin-primary-btn {
+    width: 100%;
+    height: 46px;
+    margin-top: 4px;
+}
+
+.admin-dynamic-hint {
+    grid-column: 1 / -1;
+    margin: 0 0 16px;
+    padding: 14px 16px;
+    border-radius: 16px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe;
+    font-size: 14px;
+    font-weight: 900;
+}
+
+.admin-dynamic-hint.success {
+    background: #dcfce7;
+    color: #15803d;
+    border-color: #bbf7d0;
+}
+
+.admin-dynamic-hint.error {
+    background: #fee2e2;
+    color: #b91c1c;
+    border-color: #fecaca;
+}
+
+.admin-form-grid select:disabled {
+    background: #f1f5f9;
+    color: #94a3b8;
+    cursor: not-allowed;
+}
+
+.admin-custom-time-input {
+    margin-top: 10px;
+}
+
+.admin-custom-time-input[hidden] {
+    display: none;
+}
+
+.admin-csv-actions {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 18px;
+    align-items: end;
+}
+
+.admin-csv-import-form {
+    display: grid;
+    grid-template-columns: 1fr 220px;
+    gap: 14px;
+    align-items: end;
+}
+
+.admin-csv-buttons {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.admin-secondary-btn {
+    height: 48px;
+    padding: 0 16px;
+    border-radius: 14px;
+    background: #f1f5f9;
+    color: #1e293b;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 900;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 1px solid #e2e8f0;
+}
+
+.admin-secondary-btn:hover {
+    background: #e2e8f0;
+}
+
+.admin-csv-help {
+    margin-top: 18px;
+    padding: 14px 16px;
+    border-radius: 16px;
+    background: #f8fafc;
+    border: 1px dashed #cbd5e1;
+    color: #475569;
+    font-size: 14px;
+    font-weight: 750;
+}
+
+.admin-csv-help code {
+    display: block;
+    margin-top: 8px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: #0f172a;
+    color: #ffffff;
+    overflow-x: auto;
+}
+
+.admin-csv-help p {
+    margin-top: 8px;
+}
+
+.admin-csv-result {
+    margin-bottom: 18px;
+    padding: 14px 16px;
+    border-radius: 16px;
+    font-size: 14px;
+    font-weight: 800;
+}
+
+.admin-csv-result strong {
+    display: block;
+    margin-bottom: 6px;
+}
+
+.admin-csv-result.success {
+    background: #dcfce7;
+    color: #15803d;
+    border: 1px solid #bbf7d0;
+}
+
+.admin-csv-result.error {
+    background: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+}
+
+.admin-csv-result ul {
+    margin-top: 10px;
+    padding-left: 18px;
+}
+
+.admin-csv-result li {
+    margin: 5px 0;
+}
+
+/* ================= CSV IMPORT / EXPORT STUDENTS ================= */
+
+.admin-csv-card {
+    overflow: hidden;
+}
+
+.admin-csv-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.6fr);
+    gap: 22px;
+    align-items: stretch;
+}
+
+.admin-csv-import-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 260px;
+    gap: 16px;
+    align-items: stretch;
+}
+
+.admin-file-upload input[type="file"] {
+    display: none;
+}
+
+.admin-file-drop {
+    height: 64px;
+    padding: 10px 12px;
+    border: 1.5px dashed #cbd5e1;
+    border-radius: 18px;
+    background: #f8fafc;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    cursor: pointer;
+    transition: 0.2s ease;
+}
+
+.admin-file-drop:hover {
+    border-color: #2563eb;
+    background: #eff6ff;
+}
+
+.admin-file-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+    background: #dbeafe;
+    color: #2563eb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+}
+
+.admin-file-text {
+    min-width: 0;
+    flex: 1;
+}
+
+.admin-file-text strong {
+    display: block;
+    color: #0f172a;
+    font-size: 15px;
+    font-weight: 950;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.admin-file-text small {
+    display: block;
+    margin-top: 4px;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.admin-file-browse {
+    height: 38px;
+    padding: 0 14px;
+    border-radius: 12px;
+    background: #ffffff;
+    border: 1px solid #dbe3ef;
+    color: #2563eb;
+    font-size: 13px;
+    font-weight: 950;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.admin-import-btn {
+    height: 64px;
+    border-radius: 18px;
+}
+
+.admin-csv-buttons {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 14px;
+}
+
+.admin-secondary-btn {
+    min-height: 64px;
+    padding: 0 18px;
+    border-radius: 18px;
+    background: #f1f5f9;
+    color: #1e293b;
+    text-decoration: none;
+    font-size: 15px;
+    font-weight: 950;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    border: 1px solid #e2e8f0;
+    transition: 0.2s ease;
+}
+
+.admin-secondary-btn:hover {
+    background: #e2e8f0;
+    transform: translateY(-1px);
+}
+
+.admin-csv-help {
+    margin-top: 22px;
+    padding: 18px;
+    border-radius: 20px;
+    background: #f8fafc;
+    border: 1px dashed #cbd5e1;
+    color: #475569;
+    font-size: 14px;
+    font-weight: 800;
+}
+
+.admin-csv-help-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    color: #334155;
+}
+
+.admin-csv-help-title i {
+    color: #2563eb;
+}
+
+.admin-csv-help code {
+    display: block;
+    padding: 14px 16px;
+    border-radius: 14px;
+    background: #0f172a;
+    color: #ffffff;
+    overflow-x: auto;
+    font-size: 14px;
+    font-weight: 900;
+    white-space: nowrap;
+}
+
+.admin-csv-help p {
+    margin-top: 12px;
+    color: #64748b;
+    line-height: 1.6;
+}
+
+.admin-csv-result {
+    margin-bottom: 18px;
+    padding: 14px 16px;
+    border-radius: 16px;
+    font-size: 14px;
+    font-weight: 800;
+}
+
+.admin-csv-result strong {
+    display: block;
+    margin-bottom: 6px;
+}
+
+.admin-csv-result.success {
+    background: #dcfce7;
+    color: #15803d;
+    border: 1px solid #bbf7d0;
+}
+
+.admin-csv-result.error {
+    background: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+}
+
+.admin-csv-result ul {
+    margin-top: 10px;
+    padding-left: 18px;
+}
+
+.admin-csv-result li {
+    margin: 5px 0;
+}
+
+/* ================= SUBJECT FORM FIX ================= */
+
+.subject-form {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.admin-field input[readonly] {
+    background: #f8fafc;
+    color: #475569;
+    cursor: not-allowed;
+}
+
+.admin-input-help {
+    margin-top: 6px;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+/* ================= SCHEDULE EDIT UI ================= */
+
+.admin-edit-box {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid #e5e7eb;
+}
+
+.admin-edit-box summary {
+    list-style: none;
+    cursor: pointer;
+    color: #2563eb;
+    font-size: 14px;
+    font-weight: 900;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.admin-edit-box summary::-webkit-details-marker {
+    display: none;
+}
+
+.admin-edit-box summary:hover {
+    color: #1d4ed8;
+}
+
+.admin-edit-form {
+    margin-top: 16px;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+}
+
+.admin-edit-form .admin-primary-btn {
+    width: 100%;
+    height: 46px;
+    margin-top: 4px;
+}
+
+.admin-custom-time-input {
+    margin-top: 10px;
+}
+
+.admin-custom-time-input[hidden] {
+    display: none;
+}
+
+.admin-dynamic-hint {
+    grid-column: 1 / -1;
+    margin: 0 0 16px;
+    padding: 14px 16px;
+    border-radius: 16px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe;
+    font-size: 14px;
+    font-weight: 900;
+}
+
+.admin-dynamic-hint.success {
+    background: #dcfce7;
+    color: #15803d;
+    border-color: #bbf7d0;
+}
+
+.admin-dynamic-hint.error {
+    background: #fee2e2;
+    color: #b91c1c;
+    border-color: #fecaca;
+}
+
+.admin-dynamic-hint.info {
+    background: #eff6ff;
+    color: #1d4ed8;
+    border-color: #bfdbfe;
+}
+
+.admin-form-grid select:disabled {
+    background: #f1f5f9;
+    color: #94a3b8;
+    cursor: not-allowed;
+}
+
+
+@media (max-width: 1100px) {
+    .subject-form {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 700px) {
+    .subject-form {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 1100px) {
+    .admin-csv-actions {
+        grid-template-columns: 1fr;
+    }
+
+    .admin-csv-import-form {
+        grid-template-columns: 1fr;
+    }
+
+    .admin-csv-buttons {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 700px) {
+    .admin-csv-buttons {
+        grid-template-columns: 1fr;
+    }
+
+    .admin-file-drop {
+        height: auto;
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .admin-file-browse {
+        width: 100%;
+    }
+}
+
+@media (max-width: 900px) {
+    .admin-csv-actions,
+    .admin-csv-import-form {
+        grid-template-columns: 1fr;
+    }
+
+    .admin-csv-buttons {
+        flex-direction: column;
+    }
+
+    .admin-secondary-btn {
+        width: 100%;
+    }
+}
+
 /* Mobile behavior */
 @media (max-width: 760px) {
     body.admin-sidebar-collapsed .admin-layout {

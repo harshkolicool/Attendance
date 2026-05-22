@@ -378,9 +378,11 @@ router.post("/attendance/start", isTeacher, async (req, res) => {
             college: req.user.college,
             classGroup: scheduleItem.classGroup._id,
             classroom: scheduleItem.classroom._id,
+
             latitude: Number(teacherLatitude),
             longitude: Number(teacherLongitude),
             radius: scheduleItem.classroom.radius,
+
             startTime: startTime,
             endTime: endTime,
             status: "ACTIVE",

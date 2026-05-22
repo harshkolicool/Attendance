@@ -223,26 +223,12 @@ function validateClassroomForm(form, errors) {
         }
     }
 
-    if (validateRequired(form, "latitude", "Latitude", errors)) {
-        const latitude = getFieldValue(form, "latitude");
+    if (validateRequired(form, "radius", "Allowed Radius", errors)) {
+        const radius = getFieldValue(form, "radius");
 
-        if (!isLatitude(latitude)) {
-            addError(errors, form, "latitude", "Latitude must be between -90 and 90.");
+        if (!isRadius(radius)) {
+            addError(errors, form, "radius", "Radius must be between 10 and 10000 meters.");
         }
-    }
-
-    if (validateRequired(form, "longitude", "Longitude", errors)) {
-        const longitude = getFieldValue(form, "longitude");
-
-        if (!isLongitude(longitude)) {
-            addError(errors, form, "longitude", "Longitude must be between -180 and 180.");
-        }
-    }
-
-    const radius = getFieldValue(form, "radius");
-
-    if (radius && !isRadius(radius)) {
-        addError(errors, form, "radius", "Radius must be between 10 and 10000 meters.");
     }
 }
 
@@ -257,10 +243,16 @@ function validateTeacherForm(form, errors) {
         }
     }
 
-    if (validateRequired(form, "password", "Password", errors)) {
-        const password = getFieldValue(form, "password");
+    const password = getFieldValue(form, "password");
 
-        if (password.length < 6) {
+    if (form.getAttribute("action").includes("/create")) {
+        if (!password) {
+            addError(errors, form, "password", "Password is required.");
+        } else if (password.length < 6) {
+            addError(errors, form, "password", "Password must be at least 6 characters.");
+        }
+    } else {
+        if (password && password.length < 6) {
             addError(errors, form, "password", "Password must be at least 6 characters.");
         }
     }
@@ -288,10 +280,16 @@ function validateStudentForm(form, errors) {
         }
     }
 
-    if (validateRequired(form, "password", "Password", errors)) {
-        const password = getFieldValue(form, "password");
+    const password = getFieldValue(form, "password");
 
-        if (password.length < 6) {
+    if (form.getAttribute("action").includes("/create")) {
+        if (!password) {
+            addError(errors, form, "password", "Password is required.");
+        } else if (password.length < 6) {
+            addError(errors, form, "password", "Password must be at least 6 characters.");
+        }
+    } else {
+        if (password && password.length < 6) {
             addError(errors, form, "password", "Password must be at least 6 characters.");
         }
     }
@@ -410,6 +408,34 @@ function getValidatorForForm(form) {
     }
 
     if (action.includes("/admin/schedules/create")) {
+        return validateScheduleForm;
+    }
+
+    if (
+        action.includes("/admin/class-groups/") &&
+        action.includes("/update")
+    ) {
+        return validateClassGroupForm;
+    }
+
+    if (
+        action.includes("/admin/classrooms/") &&
+        action.includes("/update")
+    ) {
+        return validateClassroomForm;
+    }
+
+    if (
+        action.includes("/admin/subjects/") &&
+        action.includes("/update")
+    ) {
+        return validateSubjectForm;
+    }
+
+    if (
+        action.includes("/admin/schedules/") &&
+        action.includes("/update")
+    ) {
         return validateScheduleForm;
     }
 

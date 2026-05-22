@@ -5,7 +5,6 @@ const collegeSchema = new mongoose.Schema({
     collegeName: {
         type: String,
         required: true,
-        unique: true,
         trim: true
     },
 
@@ -35,6 +34,11 @@ const collegeSchema = new mongoose.Schema({
         trim: true
     },
 
+    isActive: {
+        type: Boolean,
+        default: true
+    },
+
     classrooms: [
         {
             type: mongoose.Schema.Types.ObjectId,
@@ -60,9 +64,18 @@ const collegeSchema = new mongoose.Schema({
     timestamps: true
 });
 
-const College = mongoose.model(
-    "College",
-    collegeSchema
-);
+collegeSchema.index({
+    collegeCode: 1
+}, {
+    unique: true
+});
+
+collegeSchema.index({
+    collegeName: 1,
+    city: 1,
+    state: 1
+});
+
+const College = mongoose.model("College", collegeSchema);
 
 module.exports = College;

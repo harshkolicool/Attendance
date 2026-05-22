@@ -5,15 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Subjects | Admin</title>
 
-    <!-- Admin theme CSS -->
     <link rel="stylesheet" href="/css/adminTheme.css">
 
-    <!-- Font Awesome Icons -->
     <link
         rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
     >
-    
 </head>
 <body>
 
@@ -27,81 +24,126 @@
             <div>
                 <span class="admin-kicker">Admin Panel</span>
                 <h1>Subjects</h1>
-                <p>Create subjects and assign teachers to class groups.</p>
+                <p>Create, edit and assign subjects to class groups.</p>
             </div>
         </header>
 
         <% if (message) { %>
-            <div class="admin-alert <%= message.includes('successfully') ? 'success' : 'error' %>">
+            <div class="admin-alert <%= message.includes('successfully') || message.includes('created') || message.includes('updated') ? 'success' : 'error' %>">
                 <%= message %>
             </div>
         <% } %>
 
         <section class="admin-card">
+
             <div class="admin-card-head">
                 <div>
                     <h3>Add Subject</h3>
-                    <p>Assign subject to a class group and one or more teachers.</p>
+                    <p>Select a class group first. Department and semester will fill automatically.</p>
                 </div>
             </div>
 
-            <form action="/admin/subjects/create" method="POST" class="admin-form-grid">
+            <form
+                action="/admin/subjects/create"
+                method="POST"
+                class="admin-form-grid subject-form js-subject-form"
+            >
 
-                <input
-                    type="text"
-                    name="subjectName"
-                    placeholder="Subject Name"
-                    required
-                >
+                <div class="admin-field">
+                    <label>Subject Name</label>
+                    <input
+                        type="text"
+                        name="subjectName"
+                        placeholder="Data Structures"
+                        required
+                    >
+                </div>
 
-                <input
-                    type="text"
-                    name="subjectCode"
-                    placeholder="Subject Code"
-                    required
-                >
+                <div class="admin-field">
+                    <label>Subject Code</label>
+                    <input
+                        type="text"
+                        name="subjectCode"
+                        placeholder="DSA2026"
+                        required
+                    >
+                </div>
 
-                <input
-                    type="text"
-                    name="department"
-                    placeholder="Department"
-                    required
-                >
+                <div class="admin-field">
+                    <label>Class Group</label>
+                    <select name="classGroupId" class="js-subject-class-group" required>
+                        <option value="">Select Class Group</option>
 
-                <input
-                    type="number"
-                    name="semester"
-                    placeholder="Semester"
-                    required
-                >
+                        <% classGroups.forEach(function(group) { %>
+                            <option
+                                value="<%= group._id %>"
+                                data-department="<%= group.department %>"
+                                data-semester="<%= group.semester %>"
+                            >
+                                <%= group.name %> - Sem <%= group.semester %> <%= group.section %>
+                            </option>
+                        <% }) %>
+                    </select>
+                </div>
 
-                <select name="classGroupId" required>
-                    <option value="">Select Class Group</option>
+                <div class="admin-field">
+                    <label>Department</label>
+                    <input
+                        type="text"
+                        name="department"
+                        class="js-subject-department"
+                        placeholder="Auto-filled"
+                        readonly
+                        required
+                    >
+                </div>
 
-                    <% classGroups.forEach(function(group) { %>
-                        <option
-                            value="<%= group._id %>"
-                            data-department="<%= group.department %>"
-                            data-semester="<%= group.semester %>"
-                        >
-                            <%= group.name %> - Sem <%= group.semester %> <%= group.section %>
-                        </option>
-                    <% }) %>
-                </select>
+                <div class="admin-field">
+                    <label>Semester</label>
+                    <input
+                        type="number"
+                        name="semester"
+                        class="js-subject-semester"
+                        placeholder="Auto-filled"
+                        readonly
+                        required
+                    >
+                </div>
 
-                <select name="teacherIds" multiple required>
-                    <% teachers.forEach(function(teacher) { %>
-                        <option value="<%= teacher._id %>">
-                            <%= teacher.fullName %> - <%= teacher.department %>
-                        </option>
-                    <% }) %>
-                </select>
+                <div class="admin-field">
+                    <label>Assign Teacher</label>
+                    <select name="teacherIds" class="js-subject-teacher" required>
+                        <option value="">Select Teacher</option>
 
-                <button class="admin-primary-btn" type="submit">
-                    <i class="fa-solid fa-plus"></i>
-                    Add Subject
-                </button>
+                        <% if (teachers && teachers.length > 0) { %>
+                            <% teachers.forEach(function(teacher) { %>
+                                <option
+                                    value="<%= teacher._id %>"
+                                    data-department="<%= teacher.department %>"
+                                >
+                                    <%= teacher.fullName %> - <%= teacher.department %>
+                                </option>
+                            <% }) %>
+                        <% } else { %>
+                            <option value="" disabled>No teachers available</option>
+                        <% } %>
+                    </select>
+
+                    <small class="admin-input-help">
+                        Teachers are filtered by selected class group department.
+                    </small>
+                </div>
+
+                <div class="admin-field admin-button-field">
+                    <label>&nbsp;</label>
+                    <button class="admin-primary-btn" type="submit">
+                        <i class="fa-solid fa-plus"></i>
+                        Add Subject
+                    </button>
+                </div>
+
             </form>
+
         </section>
 
         <section class="admin-card">
@@ -112,7 +154,7 @@
                     <input
                         type="text"
                         data-admin-search="subjects"
-                        placeholder="Search subject by name, code, department, class group or teacher..."
+                        placeholder="Search subject by name, code, class group, department or teacher..."
                     >
                 </div>
 
@@ -123,13 +165,25 @@
 
             <% if (!subjects || subjects.length === 0) { %>
                 <div class="admin-empty">
-                    No subjects found.
+                    No subjects created yet.
                 </div>
             <% } %>
 
             <div class="admin-grid">
 
                 <% subjects.forEach(function(subject) { %>
+
+                    <%
+                        let selectedTeacherId = "";
+
+                        if (subject.teachers && subject.teachers.length > 0) {
+                            if (subject.teachers[0]._id) {
+                                selectedTeacherId = subject.teachers[0]._id.toString();
+                            } else {
+                                selectedTeacherId = subject.teachers[0].toString();
+                            }
+                        }
+                    %>
 
                     <article class="admin-item-card" data-search-group="subjects">
 
@@ -150,19 +204,19 @@
                         </div>
 
                         <h4><%= subject.subjectName %></h4>
-                        <p><%= subject.subjectCode %></p>
+
+                        <p>
+                            <%= subject.subjectCode %>
+                            ·
+                            <%= subject.department %>
+                            ·
+                            Sem <%= subject.semester %>
+                        </p>
 
                         <div class="admin-meta">
-                            <span class="admin-badge">
-                                <%= subject.department %>
-                            </span>
-
-                            <span class="admin-badge">
-                                Sem <%= subject.semester %>
-                            </span>
-
                             <% if (subject.classGroup) { %>
                                 <span class="admin-badge">
+                                    <i class="fa-solid fa-layer-group"></i>
                                     <%= subject.classGroup.name %>
                                 </span>
                             <% } else { %>
@@ -170,9 +224,7 @@
                                     Class Missing
                                 </span>
                             <% } %>
-                        </div>
 
-                        <div class="admin-meta">
                             <% if (subject.teachers && subject.teachers.length > 0) { %>
                                 <% subject.teachers.forEach(function(teacher) { %>
                                     <span class="admin-badge">
@@ -187,6 +239,106 @@
                             <% } %>
                         </div>
 
+                        <details class="admin-edit-box">
+                            <summary>
+                                <i class="fa-solid fa-pen-to-square"></i>
+                                Edit Subject
+                            </summary>
+
+                            <form
+                                action="/admin/subjects/<%= subject._id %>/update"
+                                method="POST"
+                                class="admin-edit-form js-subject-form"
+                            >
+                                <div class="admin-field">
+                                    <label>Subject Name</label>
+                                    <input
+                                        type="text"
+                                        name="subjectName"
+                                        value="<%= subject.subjectName %>"
+                                        required
+                                    >
+                                </div>
+
+                                <div class="admin-field">
+                                    <label>Subject Code</label>
+                                    <input
+                                        type="text"
+                                        name="subjectCode"
+                                        value="<%= subject.subjectCode %>"
+                                        required
+                                    >
+                                </div>
+
+                                <div class="admin-field">
+                                    <label>Class Group</label>
+                                    <select name="classGroupId" class="js-subject-class-group" required>
+                                        <option value="">Select Class Group</option>
+
+                                        <% classGroups.forEach(function(group) { %>
+                                            <option
+                                                value="<%= group._id %>"
+                                                data-department="<%= group.department %>"
+                                                data-semester="<%= group.semester %>"
+                                                <%= subject.classGroup && subject.classGroup._id.toString() === group._id.toString() ? "selected" : "" %>
+                                            >
+                                                <%= group.name %> - Sem <%= group.semester %> <%= group.section %>
+                                            </option>
+                                        <% }) %>
+                                    </select>
+                                </div>
+
+                                <div class="admin-field">
+                                    <label>Department</label>
+                                    <input
+                                        type="text"
+                                        name="department"
+                                        class="js-subject-department"
+                                        value="<%= subject.department %>"
+                                        readonly
+                                        required
+                                    >
+                                </div>
+
+                                <div class="admin-field">
+                                    <label>Semester</label>
+                                    <input
+                                        type="number"
+                                        name="semester"
+                                        class="js-subject-semester"
+                                        value="<%= subject.semester %>"
+                                        readonly
+                                        required
+                                    >
+                                </div>
+
+                                <div class="admin-field">
+                                    <label>Assign Teacher</label>
+                                    <select name="teacherIds" class="js-subject-teacher" required>
+                                        <option value="">Select Teacher</option>
+
+                                        <% teachers.forEach(function(teacher) { %>
+                                            <option
+                                                value="<%= teacher._id %>"
+                                                data-department="<%= teacher.department %>"
+                                                <%= selectedTeacherId === teacher._id.toString() ? "selected" : "" %>
+                                            >
+                                                <%= teacher.fullName %> - <%= teacher.department %>
+                                            </option>
+                                        <% }) %>
+                                    </select>
+
+                                    <small class="admin-input-help">
+                                        Teacher must belong to the selected department.
+                                    </small>
+                                </div>
+
+                                <button class="admin-primary-btn" type="submit">
+                                    Save Changes
+                                </button>
+                            </form>
+                        </details>
+
                     </article>
 
                 <% }) %>
@@ -199,9 +351,9 @@
 
 </div>
 
-</body>
 <script src="/js/adminSearch.js"></script>
 <script src="/js/adminSidebarToggle.js"></script>
 <script src="/js/adminValidation.js"></script>
-<script src="/js/adminDynamicForms.js"></script>
+<script src="/js/adminSubjectForm.js"></script>
+</body>
 </html>

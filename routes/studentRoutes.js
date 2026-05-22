@@ -271,6 +271,18 @@ router.get("/schedule", isStudent, async (req, res) => {
 
 router.post("/attendance/mark", isStudent, async (req, res) => {
     try {
+        function getId(value) {
+            if (!value) {
+                return null;
+            }
+
+            if (value._id) {
+                return value._id.toString();
+            }
+
+            return value.toString();
+        }
+
         const sessionId = req.body.sessionId;
         const latitude = req.body.latitude;
         const longitude = req.body.longitude;
@@ -290,12 +302,26 @@ router.post("/attendance/mark", isStudent, async (req, res) => {
             });
         }
 
-        const student = await Student.findById(req.user._id);
+        if (!Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude))) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid location coordinates"
+            });
+        }
+
+        const student = await Student.findById(req.user._id || req.user.id);
 
         if (!student) {
             return res.status(401).json({
                 success: false,
                 message: "Student not found"
+            });
+        }
+
+        if (student.isBlocked) {
+            return res.status(403).json({
+                success: false,
+                message: "Your student account is blocked"
             });
         }
 
@@ -330,20 +356,14 @@ router.post("/attendance/mark", isStudent, async (req, res) => {
             });
         }
 
-        if (session.college.toString() !== student.college.toString()) {
+        if (getId(session.college) !== getId(student.college)) {
             return res.status(403).json({
                 success: false,
                 message: "Invalid college"
             });
         }
 
-        const sessionClassGroupId = session.classGroup._id
-            ? session.classGroup._id.toString()
-            : session.classGroup.toString();
-
-        const studentClassGroupId = student.classGroup.toString();
-
-        if (sessionClassGroupId !== studentClassGroupId) {
+        if (getId(session.classGroup) !== getId(student.classGroup)) {
             return res.status(403).json({
                 success: false,
                 message: "This attendance is not for your class"
@@ -362,21 +382,24 @@ router.post("/attendance/mark", isStudent, async (req, res) => {
             });
         }
 
-        if (!session.classroom) {
+        /*
+            Important:
+            Attendance center is teacher's live GPS location.
+            Do not use classroom.latitude / classroom.longitude here.
+        */
+        const sessionLatitude = session.latitude;
+        const sessionLongitude = session.longitude;
+        const sessionRadius = session.radius || 100;
+
+        if (
+            sessionLatitude === undefined ||
+            sessionLatitude === null ||
+            sessionLongitude === undefined ||
+            sessionLongitude === null
+        ) {
             return res.status(400).json({
                 success: false,
-                message: "Classroom is missing for this session"
-            });
-        }
-
-        const sessionLatitude = session.latitude || session.classroom.latitude;
-        const sessionLongitude = session.longitude || session.classroom.longitude;
-        const sessionRadius = session.radius || session.classroom.radius || 100;
-
-        if (sessionLatitude == null || sessionLongitude == null) {
-            return res.status(400).json({
-                success: false,
-                message: "Attendance location is missing"
+                message: "Attendance location is missing. Teacher must start attendance with location enabled."
             });
         }
 
@@ -390,7 +413,7 @@ router.post("/attendance/mark", isStudent, async (req, res) => {
         if (distance > sessionRadius) {
             return res.status(403).json({
                 success: false,
-                message: "You are outside the classroom range",
+                message: "You are outside the allowed classroom range",
                 distance: Math.round(distance),
                 allowedRadius: sessionRadius
             });
@@ -414,6 +437,18 @@ router.post("/attendance/mark", isStudent, async (req, res) => {
             }
         });
 
+        if (!session.attendanceRecords) {
+            session.attendanceRecords = [];
+        }
+
+        if (!session.presentStudents) {
+            session.presentStudents = [];
+        }
+
+        if (!session.absentStudents) {
+            session.absentStudents = [];
+        }
+
         session.attendanceRecords.push(attendanceRecord._id);
 
         session.presentStudents.push({
@@ -427,16 +462,20 @@ router.post("/attendance/mark", isStudent, async (req, res) => {
             distanceFromClassroom: Math.round(distance)
         });
 
-        session.attendanceSummary.totalPresent = session.presentStudents.length;
-        session.attendanceSummary.totalAbsent = session.absentStudents.length;
-        session.attendanceSummary.totalMarked =
-            session.presentStudents.length + session.absentStudents.length;
+        session.attendanceSummary = {
+            totalPresent: session.presentStudents.length,
+            totalAbsent: session.absentStudents.length,
+            totalMarked: session.presentStudents.length + session.absentStudents.length
+        };
 
         await session.save();
 
         res.json({
             success: true,
-            message: "Attendance marked successfully"
+            message: "Attendance marked successfully",
+            status: "PRESENT",
+            distance: Math.round(distance),
+            allowedRadius: sessionRadius
         });
 
     } catch (err) {

@@ -2,65 +2,111 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Classrooms | Admin</title>
-    <link rel="stylesheet" href="/css/adminTheme.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+
     <link rel="stylesheet" href="/css/adminTheme.css">
 
-<link
-    rel="stylesheet"
-    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
->
+    <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+    >
 </head>
 <body>
 
 <div class="admin-layout">
+
     <%- include("partials/sidebar", { activePage: activePage }) %>
 
     <main class="admin-main">
+
         <header class="admin-header">
             <div>
                 <span class="admin-kicker">Admin Panel</span>
                 <h1>Classrooms</h1>
-                <p>Create, search, and manage classroom locations for attendance.</p>
+                <p>Create, search, edit and manage classroom radius for attendance.</p>
             </div>
         </header>
 
         <% if (message) { %>
-            <div class="admin-alert success"><%= message %></div>
+            <div class="admin-alert <%= message.includes('successfully') ? 'success' : 'error' %>">
+                <%= message %>
+            </div>
         <% } %>
 
         <section class="admin-card">
             <div class="admin-card-head">
                 <div>
                     <h3>Add Classroom</h3>
-                    <p>Latitude, longitude and radius are used for location verification.</p>
+                    <p>Teacher location will be captured automatically when attendance starts. Radius controls the allowed student range.</p>
                 </div>
             </div>
 
             <form action="/admin/classrooms/create" method="POST" class="admin-form-grid">
-                <input type="text" name="classroomName" placeholder="Classroom Name" required>
-                <input type="text" name="buildingName" placeholder="Building Name" required>
-                <input type="number" name="floorNumber" placeholder="Floor Number" required>
-                <input type="number" step="any" name="latitude" placeholder="Latitude" required>
-                <input type="number" step="any" name="longitude" placeholder="Longitude" required>
-                <input type="number" name="radius" placeholder="Radius in meters" value="100">
 
-                <button class="admin-primary-btn" type="submit">
-                    <i class="fa-solid fa-plus"></i>
-                    Add Classroom
-                </button>
+                <div class="admin-field">
+                    <label>Classroom Name</label>
+                    <input
+                        type="text"
+                        name="classroomName"
+                        placeholder="Room 101"
+                        required
+                    >
+                </div>
+
+                <div class="admin-field">
+                    <label>Building Name</label>
+                    <input
+                        type="text"
+                        name="buildingName"
+                        placeholder="CS Block"
+                        required
+                    >
+                </div>
+
+                <div class="admin-field">
+                    <label>Floor Number</label>
+                    <input
+                        type="number"
+                        name="floorNumber"
+                        placeholder="1"
+                        required
+                    >
+                </div>
+
+                <div class="admin-field">
+                    <label>Allowed Radius</label>
+                    <input
+                        type="number"
+                        name="radius"
+                        placeholder="100"
+                        value="100"
+                        min="10"
+                        max="10000"
+                        required
+                    >
+                </div>
+
+                <div class="admin-field admin-button-field">
+                    <label>&nbsp;</label>
+                    <button class="admin-primary-btn" type="submit">
+                        <i class="fa-solid fa-plus"></i>
+                        Add Classroom
+                    </button>
+                </div>
+
             </form>
         </section>
 
         <section class="admin-card">
+
             <div class="admin-toolbar">
                 <div class="admin-search-box">
                     <i class="fa-solid fa-magnifying-glass"></i>
                     <input
                         type="text"
                         data-admin-search="classrooms"
-                        placeholder="Search classroom by name, building, floor, latitude or longitude..."
+                        placeholder="Search classroom by name, building, floor or radius..."
                     >
                 </div>
 
@@ -69,13 +115,18 @@
                 </span>
             </div>
 
-            <% if (classrooms.length === 0) { %>
-                <div class="admin-empty">No classrooms found.</div>
+            <% if (!classrooms || classrooms.length === 0) { %>
+                <div class="admin-empty">
+                    No classrooms found.
+                </div>
             <% } %>
 
             <div class="admin-grid">
+
                 <% classrooms.forEach(function(room) { %>
+
                     <article class="admin-item-card" data-search-group="classrooms">
+
                         <div class="admin-item-top">
                             <div class="admin-item-icon">
                                 <i class="fa-solid fa-door-open"></i>
@@ -96,19 +147,88 @@
                         <p><%= room.buildingName %> · Floor <%= room.floorNumber %></p>
 
                         <div class="admin-meta">
-                            <span class="admin-badge">Lat: <%= room.latitude %></span>
-                            <span class="admin-badge">Lng: <%= room.longitude %></span>
-                            <span class="admin-badge">Radius: <%= room.radius %>m</span>
+                            <span class="admin-badge">
+                                Radius: <%= room.radius %>m
+                            </span>
+
+                            <span class="admin-badge">
+                                Location: Teacher live GPS
+                            </span>
                         </div>
+
+                        <details class="admin-edit-box">
+                            <summary>
+                                <i class="fa-solid fa-pen-to-square"></i>
+                                Edit Classroom
+                            </summary>
+
+                            <form
+                                action="/admin/classrooms/<%= room._id %>/update"
+                                method="POST"
+                                class="admin-edit-form"
+                            >
+                                <div class="admin-field">
+                                    <label>Classroom Name</label>
+                                    <input
+                                        type="text"
+                                        name="classroomName"
+                                        value="<%= room.classroomName %>"
+                                        required
+                                    >
+                                </div>
+
+                                <div class="admin-field">
+                                    <label>Building Name</label>
+                                    <input
+                                        type="text"
+                                        name="buildingName"
+                                        value="<%= room.buildingName %>"
+                                        required
+                                    >
+                                </div>
+
+                                <div class="admin-field">
+                                    <label>Floor Number</label>
+                                    <input
+                                        type="number"
+                                        name="floorNumber"
+                                        value="<%= room.floorNumber %>"
+                                        required
+                                    >
+                                </div>
+
+                                <div class="admin-field">
+                                    <label>Allowed Radius</label>
+                                    <input
+                                        type="number"
+                                        name="radius"
+                                        value="<%= room.radius %>"
+                                        min="10"
+                                        max="10000"
+                                        required
+                                    >
+                                </div>
+
+                                <button class="admin-primary-btn" type="submit">
+                                    Save Changes
+                                </button>
+                            </form>
+                        </details>
+
                     </article>
+
                 <% }) %>
+
             </div>
+
         </section>
+
     </main>
+
 </div>
 
-</body>
-<script src="/js/adminValidation.js"></script>
 <script src="/js/adminSearch.js"></script>
 <script src="/js/adminSidebarToggle.js"></script>
+<script src="/js/adminValidation.js"></script>
+</body>
 </html>

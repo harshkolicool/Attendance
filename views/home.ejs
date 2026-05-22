@@ -3,209 +3,403 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Attendify | Smart Attendance System</title>
-    <link rel="stylesheet" href="/css/style.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <title>Attendify | Smart College Attendance System</title>
+
+    <link rel="stylesheet" href="/css/home.css">
+
+    <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+    >
 </head>
 <body>
 
-<div class="landing-page">
-    <div class="landing-bg" aria-hidden="true"></div>
+<div class="home-page">
 
-    <nav class="landing-nav glass-nav">
-        <a href="/" class="brand-logo">
-            <span><i class="fa-solid fa-clipboard-check"></i></span>
+    <header class="home-navbar">
+        <a href="/" class="home-brand">
+            <span>
+                <i class="fa-solid fa-clipboard-check"></i>
+            </span>
             Attendify
         </a>
 
-        <div class="nav-links">
-            <a href="/admin/login"><i class="fa-solid fa-shield-halved"></i> Admin</a>
-            <a href="/teacher/login"><i class="fa-solid fa-chalkboard-user"></i> Teacher</a>
-            <a href="/student/login" class="nav-cta"><i class="fa-solid fa-user-graduate"></i> Student</a>
-        </div>
-    </nav>
+        <button class="home-menu-btn" id="homeMenuBtn" type="button">
+            <i class="fa-solid fa-bars"></i>
+        </button>
 
-    <section class="hero-section">
-        <div class="hero-content animate-in">
-            <div class="hero-badge">
-                <i class="fa-solid fa-sparkles"></i>
-                Smart College Attendance
-            </div>
+        <nav class="home-nav-links" id="homeNavLinks">
+            <a href="#features">Features</a>
+            <a href="#how-it-works">How it works</a>
+            <a href="/college/register">Register College</a>
+            <a href="/admin/login">Admin</a>
+            <a href="/teacher/login">Teacher</a>
+            <a href="/student/login" class="home-nav-cta">Student Login</a>
+        </nav>
+    </header>
 
-            <h1>Attendance tracking built for modern campuses</h1>
+    <main>
 
-            <p>
-                Launch live sessions from timetables, verify students with GPS,
-                and monitor attendance in real time — all in one polished dashboard.
-            </p>
+        <section class="hero-section">
 
-            <div class="hero-actions">
-                <a href="/teacher/login" class="btn btn-primary btn-lg">
-                    <i class="fa-solid fa-arrow-right-to-bracket"></i>
-                    Teacher Login
-                </a>
-                <a href="/student/login" class="btn btn-outline btn-lg">
-                    Student Login
-                </a>
-            </div>
+            <div class="hero-bg-circle circle-one"></div>
+            <div class="hero-bg-circle circle-two"></div>
 
-            <div class="hero-trust">
-                <div class="trust-item">
+            <div class="hero-content">
+
+                <div class="hero-badge">
                     <i class="fa-solid fa-location-crosshairs"></i>
-                    <span>Geo-verified check-in</span>
-                </div>
-                <div class="trust-item">
-                    <i class="fa-solid fa-shield-halved"></i>
-                    <span>Secure sessions</span>
-                </div>
-                <div class="trust-item">
-                    <i class="fa-solid fa-clock"></i>
-                    <span>Live timetables</span>
-                </div>
-            </div>
-        </div>
-
-        <div class="hero-panel animate-in delay-1">
-            <div class="mini-window">
-                <div class="window-top">
-                    <span></span><span></span><span></span>
+                    GPS verified attendance for modern colleges
                 </div>
 
-                <div class="window-card active">
-                    <div class="window-card-icon"><i class="fa-solid fa-database"></i></div>
+                <h1>
+                    Manage attendance smarter with live location, schedules and reports.
+                </h1>
+
+                <p>
+                    Attendify helps colleges create class groups, assign teachers, schedule lectures,
+                    start live attendance sessions and verify students using GPS location.
+                </p>
+
+                <div class="hero-actions">
+                    <a href="/college/register" class="primary-btn">
+                        <i class="fa-solid fa-building-columns"></i>
+                        Register Your College
+                    </a>
+
+                    <a href="/student/login" class="secondary-btn">
+                        <i class="fa-solid fa-user-graduate"></i>
+                        Student Login
+                    </a>
+                </div>
+
+                <div class="hero-trust-row">
                     <div>
-                        <h4>Database Management System</h4>
-                        <p>CSE 4A · Room 101</p>
+                        <i class="fa-solid fa-shield-halved"></i>
+                        Multi-college secure system
                     </div>
-                    <span class="pill-live">LIVE</span>
-                </div>
 
-                <div class="window-card">
-                    <div class="window-card-icon muted"><i class="fa-solid fa-microchip"></i></div>
                     <div>
-                        <h4>Operating Systems</h4>
-                        <p>10:15 AM – 11:15 AM</p>
+                        <i class="fa-solid fa-clock"></i>
+                        Timetable based sessions
                     </div>
-                    <span class="pill-next">Next</span>
-                </div>
 
-                <div class="attendance-meter">
-                    <div class="meter-ring">
-                        <strong>87%</strong>
-                    </div>
                     <div>
-                        <p class="meter-label">Weekly Attendance</p>
-                        <span class="meter-trend"><i class="fa-solid fa-arrow-trend-up"></i> +4% this week</span>
+                        <i class="fa-solid fa-file-csv"></i>
+                        CSV import/export
                     </div>
                 </div>
+
             </div>
-        </div>
-    </section>
 
-    <section class="stats-banner">
-        <div class="stat-banner-item">
-            <strong>500+</strong>
-            <span>Students tracked</span>
-        </div>
-        <div class="stat-banner-item">
-            <strong>40+</strong>
-            <span>Classrooms mapped</span>
-        </div>
-        <div class="stat-banner-item">
-            <strong>99.2%</strong>
-            <span>Check-in accuracy</span>
-        </div>
-        <div class="stat-banner-item">
-            <strong>&lt; 3s</strong>
-            <span>Average mark time</span>
-        </div>
-    </section>
+            <div class="hero-dashboard">
 
-    <section class="features-section">
-        <div class="section-head center">
-            <span class="section-tag">Features</span>
-            <h2>Everything your campus needs</h2>
-            <p>Designed for teachers who run sessions and students who mark on the go.</p>
-        </div>
+                <div class="dashboard-card main-preview-card">
 
-        <div class="features-grid">
-            <article class="feature-card">
-                <div class="feature-icon blue"><i class="fa-solid fa-calendar-check"></i></div>
-                <h3>Smart Timetables</h3>
-                <p>Teachers see today’s schedule and start attendance in one click.</p>
-            </article>
-            <article class="feature-card">
-                <div class="feature-icon green"><i class="fa-solid fa-location-dot"></i></div>
-                <h3>Location Verification</h3>
-                <p>Students must be on campus to mark — reducing proxy attendance.</p>
-            </article>
-            <article class="feature-card">
-                <div class="feature-icon purple"><i class="fa-solid fa-chart-pie"></i></div>
-                <h3>Live Analytics</h3>
-                <p>Present, absent, and unmarked counts update as sessions run.</p>
-            </article>
-            <article class="feature-card">
-                <div class="feature-icon orange"><i class="fa-solid fa-bolt"></i></div>
-                <h3>Instant Sessions</h3>
-                <p>Open and close live attendance windows with timed expiry.</p>
-            </article>
-            <article class="feature-card">
-                <div class="feature-icon teal"><i class="fa-solid fa-users"></i></div>
-                <h3>Class Groups</h3>
-                <p>Organize batches, subjects, and rooms in a unified structure.</p>
-            </article>
-            <article class="feature-card">
-                <div class="feature-icon rose"><i class="fa-solid fa-mobile-screen"></i></div>
-                <h3>Mobile Ready</h3>
-                <p>Responsive UI works on phones, tablets, and lab desktops.</p>
-            </article>
-        </div>
-    </section>
+                    <div class="preview-header">
+                        <div>
+                            <span>Live Session</span>
+                            <h3>Data Structures</h3>
+                        </div>
 
-    <section class="steps-section">
-        <div class="section-head">
-            <span class="section-tag">How it works</span>
-            <h2>Three steps to mark attendance</h2>
-        </div>
+                        <span class="live-pill">
+                            <i class="fa-solid fa-circle"></i>
+                            Active
+                        </span>
+                    </div>
 
-        <div class="steps-grid">
-            <div class="step-card">
-                <span class="step-num">01</span>
-                <h3>Teacher starts session</h3>
-                <p>Pick a class from today’s schedule and open a live attendance window.</p>
+                    <div class="preview-class-info">
+                        <div>
+                            <small>Class Group</small>
+                            <strong>AIML 4A</strong>
+                        </div>
+
+                        <div>
+                            <small>Room</small>
+                            <strong>Room 101</strong>
+                        </div>
+
+                        <div>
+                            <small>Radius</small>
+                            <strong>100m</strong>
+                        </div>
+                    </div>
+
+                    <div class="attendance-progress">
+                        <div class="progress-top">
+                            <span>Attendance marked</span>
+                            <strong>42 / 50</strong>
+                        </div>
+
+                        <div class="progress-bar">
+                            <span></span>
+                        </div>
+                    </div>
+
+                    <div class="preview-students">
+                        <div class="student-chip present">
+                            <i class="fa-solid fa-check"></i>
+                            Present
+                            <strong>42</strong>
+                        </div>
+
+                        <div class="student-chip absent">
+                            <i class="fa-solid fa-xmark"></i>
+                            Absent
+                            <strong>8</strong>
+                        </div>
+                    </div>
+
+                </div>
+
+                <div class="floating-card teacher-card">
+                    <i class="fa-solid fa-chalkboard-user"></i>
+                    <div>
+                        <span>Teacher GPS</span>
+                        <strong>Location captured</strong>
+                    </div>
+                </div>
+
+                <div class="floating-card student-card">
+                    <i class="fa-solid fa-mobile-screen-button"></i>
+                    <div>
+                        <span>Student Check-in</span>
+                        <strong>Inside allowed radius</strong>
+                    </div>
+                </div>
+
             </div>
-            <div class="step-card">
-                <span class="step-num">02</span>
-                <h3>Student checks in</h3>
-                <p>Students tap Mark Attendance — location is verified automatically.</p>
-            </div>
-            <div class="step-card">
-                <span class="step-num">03</span>
-                <h3>Records saved</h3>
-                <p>Attendance is logged instantly and visible on the student dashboard.</p>
-            </div>
-        </div>
-    </section>
 
-    <section class="cta-section">
-        <div class="cta-card">
-            <h2>Ready to streamline your classroom?</h2>
-            <p>Sign in as a teacher or student to get started.</p>
-            <div class="hero-actions">
-                <a href="/teacher/login" class="btn btn-primary">Teacher Portal</a>
-                <a href="/student/login" class="btn btn-ghost">Student Portal</a>
-            </div>
-        </div>
-    </section>
+        </section>
 
-    <footer class="landing-footer">
-        <a href="/" class="brand-logo small">
-            <span><i class="fa-solid fa-clipboard-check"></i></span>
-            Attendify
-        </a>
-        <p>© <%= new Date().getFullYear() %> Attendify · Smart campus attendance</p>
+        <section class="role-section">
+
+            <div class="section-heading center">
+                <span>Login Portals</span>
+                <h2>Choose your dashboard</h2>
+                <p>Every role gets a focused dashboard for its own workflow.</p>
+            </div>
+
+            <div class="role-grid">
+
+                <a href="/admin/login" class="role-card">
+                    <div class="role-icon admin">
+                        <i class="fa-solid fa-user-shield"></i>
+                    </div>
+
+                    <h3>College Admin</h3>
+                    <p>Create students, teachers, classrooms, subjects and weekly schedules.</p>
+
+                    <span>
+                        Open Admin Portal
+                        <i class="fa-solid fa-arrow-right"></i>
+                    </span>
+                </a>
+
+                <a href="/teacher/login" class="role-card">
+                    <div class="role-icon teacher">
+                        <i class="fa-solid fa-chalkboard-user"></i>
+                    </div>
+
+                    <h3>Teacher</h3>
+                    <p>View today’s classes, start attendance and end sessions safely.</p>
+
+                    <span>
+                        Open Teacher Portal
+                        <i class="fa-solid fa-arrow-right"></i>
+                    </span>
+                </a>
+
+                <a href="/student/login" class="role-card">
+                    <div class="role-icon student">
+                        <i class="fa-solid fa-user-graduate"></i>
+                    </div>
+
+                    <h3>Student</h3>
+                    <p>Check timetable, mark attendance and view saved attendance status.</p>
+
+                    <span>
+                        Open Student Portal
+                        <i class="fa-solid fa-arrow-right"></i>
+                    </span>
+                </a>
+
+                <a href="/college/register" class="role-card highlight">
+                    <div class="role-icon college">
+                        <i class="fa-solid fa-building-columns"></i>
+                    </div>
+
+                    <h3>New College</h3>
+                    <p>Apply for Attendify access. Super Admin approval creates your college admin.</p>
+
+                    <span>
+                        Register College
+                        <i class="fa-solid fa-arrow-right"></i>
+                    </span>
+                </a>
+
+            </div>
+
+        </section>
+
+        <section class="features-section" id="features">
+
+            <div class="section-heading">
+                <span>Core Features</span>
+                <h2>Everything needed for production attendance</h2>
+                <p>Built around college-wise security, live GPS validation and clean admin workflows.</p>
+            </div>
+
+            <div class="features-grid">
+
+                <article class="feature-card">
+                    <i class="fa-solid fa-building-lock"></i>
+                    <h3>Multi-college security</h3>
+                    <p>Every admin can access only their own college data.</p>
+                </article>
+
+                <article class="feature-card">
+                    <i class="fa-solid fa-location-dot"></i>
+                    <h3>Teacher GPS center</h3>
+                    <p>Attendance radius is calculated from teacher’s live location.</p>
+                </article>
+
+                <article class="feature-card">
+                    <i class="fa-solid fa-calendar-days"></i>
+                    <h3>Weekly schedules</h3>
+                    <p>Create timetable by day, time, class, subject, teacher and classroom.</p>
+                </article>
+
+                <article class="feature-card">
+                    <i class="fa-solid fa-file-import"></i>
+                    <h3>CSV student import</h3>
+                    <p>Bulk import and export students using a clean CSV format.</p>
+                </article>
+
+                <article class="feature-card">
+                    <i class="fa-solid fa-user-check"></i>
+                    <h3>Present / absent records</h3>
+                    <p>Students who do not mark attendance become absent when session ends.</p>
+                </article>
+
+                <article class="feature-card">
+                    <i class="fa-solid fa-chart-line"></i>
+                    <h3>Reports ready</h3>
+                    <p>Attendance data is stored cleanly for class, subject and student reports.</p>
+                </article>
+
+            </div>
+
+        </section>
+
+        <section class="workflow-section" id="how-it-works">
+
+            <div class="section-heading center">
+                <span>How it works</span>
+                <h2>Simple flow from college registration to attendance</h2>
+            </div>
+
+            <div class="workflow-grid">
+
+                <div class="workflow-step">
+                    <span>01</span>
+                    <h3>College applies</h3>
+                    <p>College submits basic details and first admin contact information.</p>
+                </div>
+
+                <div class="workflow-step">
+                    <span>02</span>
+                    <h3>Super Admin approves</h3>
+                    <p>System generates college code, admin employee ID and temporary password.</p>
+                </div>
+
+                <div class="workflow-step">
+                    <span>03</span>
+                    <h3>Admin setup</h3>
+                    <p>College admin creates class groups, teachers, students, subjects and schedules.</p>
+                </div>
+
+                <div class="workflow-step">
+                    <span>04</span>
+                    <h3>Attendance starts</h3>
+                    <p>Teacher starts session, GPS is captured and students mark inside allowed radius.</p>
+                </div>
+
+            </div>
+
+        </section>
+
+        <section class="stats-section">
+
+            <div class="stat-card">
+                <strong>100m</strong>
+                <span>Default GPS radius</span>
+            </div>
+
+            <div class="stat-card">
+                <strong>3</strong>
+                <span>Main dashboards</span>
+            </div>
+
+            <div class="stat-card">
+                <strong>CSV</strong>
+                <span>Bulk import support</span>
+            </div>
+
+            <div class="stat-card">
+                <strong>Live</strong>
+                <span>Session tracking</span>
+            </div>
+
+        </section>
+
+        <section class="cta-section">
+
+            <div class="cta-card">
+                <div>
+                    <span>Ready to start?</span>
+                    <h2>Bring smart attendance to your college.</h2>
+                    <p>Register your college and wait for platform approval to receive admin credentials.</p>
+                </div>
+
+                <div class="cta-actions">
+                    <a href="/college/register" class="primary-btn">
+                        Register College
+                    </a>
+
+                    <a href="/admin/login" class="secondary-btn light">
+                        Admin Login
+                    </a>
+                </div>
+            </div>
+
+        </section>
+
+    </main>
+
+    <footer class="home-footer">
+        <div>
+            <a href="/" class="home-brand footer-brand">
+                <span>
+                    <i class="fa-solid fa-clipboard-check"></i>
+                </span>
+                Attendify
+            </a>
+
+            <p>Smart college attendance system with GPS verification.</p>
+        </div>
+
+        <div class="footer-links">
+            <a href="/college/register">Register College</a>
+            <a href="/admin/login">Admin</a>
+            <a href="/teacher/login">Teacher</a>
+            <a href="/student/login">Student</a>
+            <a href="/platform-admin/login">Platform Admin</a>
+        </div>
     </footer>
+
 </div>
 
+<script src="/js/home.js"></script>
 </body>
 </html>

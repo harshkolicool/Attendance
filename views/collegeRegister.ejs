@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register College | Attendify</title>
+
+    <link rel="stylesheet" href="/css/collegeRegister.css">
+
+    <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+    >
+</head>
+<body>
+
+<div class="register-page">
+
+    <section class="register-left">
+        <div class="brand-box">
+            <div class="brand-icon">
+                <i class="fa-solid fa-clipboard-check"></i>
+            </div>
+
+            <div>
+                <h1>Attendify</h1>
+                <p>Smart attendance platform for colleges</p>
+            </div>
+        </div>
+
+        <div class="hero-content">
+            <span>College Registration</span>
+            <h2>Apply to use Attendify for your college.</h2>
+            <p>
+                Submit your college and admin details. Our platform admin will review
+                your request and approve your college account.
+            </p>
+        </div>
+
+        <div class="feature-list">
+            <div>
+                <i class="fa-solid fa-shield-halved"></i>
+                <p>Secure college-wise data separation</p>
+            </div>
+
+            <div>
+                <i class="fa-solid fa-location-dot"></i>
+                <p>GPS based attendance verification</p>
+            </div>
+
+            <div>
+                <i class="fa-solid fa-users"></i>
+                <p>Admin, teacher and student dashboards</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="register-right">
+
+        <div class="form-card">
+
+            <div class="form-head">
+                <h2>College Application</h2>
+                <p>
+                    Fill basic college details. College code, admin employee ID and admin department
+                    will be generated automatically after approval.
+                </p>
+            </div>
+
+            <% if (message) { %>
+                <div class="register-alert <%= message.includes('submitted') ? 'success' : 'error' %>">
+                    <%= message %>
+                </div>
+            <% } %>
+
+            <form action="/college/register" method="POST" id="collegeRegisterForm">
+
+                <h3>College Details</h3>
+
+                <div class="form-grid">
+
+                    <div class="field">
+                        <label>College Name</label>
+                        <input
+                            type="text"
+                            name="collegeName"
+                            placeholder="BMS College of Engineering"
+                            value="<%= formData.collegeName || '' %>"
+                            required
+                        >
+                    </div>
+
+                    <div class="field">
+                        <label>City</label>
+                        <input
+                            type="text"
+                            name="city"
+                            placeholder="Bangalore"
+                            value="<%= formData.city || '' %>"
+                            required
+                        >
+                    </div>
+
+                    <div class="field">
+                        <label>State</label>
+                        <input
+                            type="text"
+                            name="state"
+                            placeholder="Karnataka"
+                            value="<%= formData.state || '' %>"
+                            required
+                        >
+                    </div>
+
+                    <div class="field full">
+                        <label>Address</label>
+                        <input
+                            type="text"
+                            name="address"
+                            placeholder="Full college address"
+                            value="<%= formData.address || '' %>"
+                            required
+                        >
+                    </div>
+
+                </div>
+
+                <h3>First Admin Details</h3>
+
+                <div class="form-grid">
+
+                    <div class="field">
+                        <label>Admin Full Name</label>
+                        <input
+                            type="text"
+                            name="adminFullName"
+                            placeholder="College Admin"
+                            value="<%= formData.adminFullName || '' %>"
+                            required
+                        >
+                    </div>
+
+                    <div class="field">
+                        <label>Admin Email</label>
+                        <input
+                            type="email"
+                            name="adminEmail"
+                            placeholder="admin@college.com"
+                            value="<%= formData.adminEmail || '' %>"
+                            required
+                        >
+                    </div>
+
+                    <div class="field">
+                        <label>Phone Number</label>
+                        <input
+                            type="text"
+                            name="adminPhone"
+                            placeholder="+91 9876543210"
+                            value="<%= formData.adminPhone || '' %>"
+                            required
+                        >
+                    </div>
+
+                </div>
+
+                <button class="submit-btn" type="submit">
+                    <i class="fa-solid fa-paper-plane"></i>
+                    Submit Application
+                </button>
+
+                <p class="login-note">
+                    Already approved?
+                    <a href="/admin/login">Login as College Admin</a>
+                </p>
+
+            </form>
+
+        </div>
+
+    </section>
+
+</div>
+
+<script src="/js/collegeRegisterValidation.js"></script>
+</body>
+</html>

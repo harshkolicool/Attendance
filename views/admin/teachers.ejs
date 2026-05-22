@@ -5,10 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Teachers | Admin</title>
 
-    <!-- Admin theme CSS -->
     <link rel="stylesheet" href="/css/adminTheme.css">
 
-    <!-- Font Awesome Icons -->
     <link
         rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
@@ -26,7 +24,7 @@
             <div>
                 <span class="admin-kicker">Admin Panel</span>
                 <h1>Teachers</h1>
-                <p>Create, search, and manage teacher accounts.</p>
+                <p>Create, search, edit and manage teacher accounts.</p>
             </div>
         </header>
 
@@ -45,50 +43,61 @@
             </div>
 
             <form action="/admin/teachers/create" method="POST" class="admin-form-grid">
-                <input
-                    type="text"
-                    name="fullName"
-                    placeholder="Full Name"
-                    required
-                >
+                <div class="admin-field">
+                    <label>Full Name</label>
+                    <input type="text" name="fullName" placeholder="Aman Sir" required>
+                </div>
 
-                <input
-                    type="email"
-                    name="email"
-                    placeholder="Email"
-                    required
-                >
+                <div class="admin-field">
+                    <label>Email</label>
+                    <input type="email" name="email" placeholder="teacher@college.com" required>
+                </div>
 
-                <input
-                    type="password"
-                    name="password"
-                    placeholder="Password"
-                    required
-                >
+                <div class="admin-field">
+                    <label>Password</label>
+                    <input type="password" name="password" placeholder="Minimum 6 characters" required>
+                </div>
 
-                <input
-                    type="text"
-                    name="employeeId"
-                    placeholder="Employee ID"
-                    required
-                >
+                <div class="admin-field">
+                    <label>Employee ID</label>
+                    <input type="text" name="employeeId" placeholder="EMP101" required>
+                </div>
 
-                <input
-                    type="text"
-                    name="department"
-                    placeholder="Department"
-                    required
-                >
+                <div class="admin-field">
+                    <label>Department</label>
 
-                <select name="role" required>
-                    <option value="TEACHER">Teacher</option>
-                    <option value="HOD">HOD</option>
-                </select>
+                    <select name="department" required>
+                        <option value="">Select Department</option>
 
-                <button class="admin-primary-btn" type="submit">
-                    <i class="fa-solid fa-plus"></i>
-                    Add Teacher
-                </button>
+                        <% if (departments && departments.length > 0) { %>
+                            <% departments.forEach(function(department) { %>
+                                <option value="<%= department %>">
+                                    <%= department %>
+                                </option>
+                            <% }) %>
+                        <% } else { %>
+                            <option value="" disabled>
+                                Create class group first
+                            </option>
+                        <% } %>
+                    </select>
+                </div>
+
+                <div class="admin-field">
+                    <label>Role</label>
+                    <select name="role" required>
+                        <option value="TEACHER">Teacher</option>
+                        <option value="HOD">HOD</option>
+                    </select>
+                </div>
+
+                <div class="admin-field admin-button-field">
+                    <label>&nbsp;</label>
+                    <button class="admin-primary-btn" type="submit">
+                        <i class="fa-solid fa-plus"></i>
+                        Add Teacher
+                    </button>
+                </div>
             </form>
         </section>
 
@@ -126,43 +135,29 @@
                                 <i class="fa-solid fa-chalkboard-user"></i>
                             </div>
 
-                            <% if (admin && admin._id && teacher._id.toString() !== admin._id.toString()) { %>
-                                <form
-                                    action="/admin/teachers/<%= teacher._id %>/delete"
-                                    method="POST"
-                                    onsubmit="return confirmAdminDelete('Delete this teacher?')"
-                                >
-                                    <button class="admin-delete-btn" type="submit">
-                                        Delete
-                                    </button>
-                                </form>
-                            <% } %>
+                            <form
+                                action="/admin/teachers/<%= teacher._id %>/delete"
+                                method="POST"
+                                onsubmit="return confirmAdminDelete('Delete this teacher?')"
+                            >
+                                <button class="admin-delete-btn" type="submit">
+                                    Delete
+                                </button>
+                            </form>
                         </div>
 
                         <h4><%= teacher.fullName %></h4>
                         <p><%= teacher.email %></p>
 
                         <div class="admin-meta">
-                            <span class="admin-badge">
-                                ID: <%= teacher.employeeId %>
-                            </span>
-
-                            <span class="admin-badge">
-                                <%= teacher.department %>
-                            </span>
-
-                            <span class="admin-badge">
-                                <%= teacher.role %>
-                            </span>
+                            <span class="admin-badge">ID: <%= teacher.employeeId %></span>
+                            <span class="admin-badge"><%= teacher.department %></span>
+                            <span class="admin-badge"><%= teacher.role %></span>
 
                             <% if (teacher.subjects && teacher.subjects.length > 0) { %>
-                                <span class="admin-badge">
-                                    <%= teacher.subjects.length %> Subjects
-                                </span>
+                                <span class="admin-badge"><%= teacher.subjects.length %> Subjects</span>
                             <% } else { %>
-                                <span class="admin-badge">
-                                    No Subjects
-                                </span>
+                                <span class="admin-badge">No Subjects</span>
                             <% } %>
                         </div>
 
@@ -176,6 +171,98 @@
                             </div>
                         <% } %>
 
+                        <details class="admin-edit-box">
+                            <summary>
+                                <i class="fa-solid fa-pen-to-square"></i>
+                                Edit Teacher
+                            </summary>
+
+                            <form
+                                action="/admin/teachers/<%= teacher._id %>/update"
+                                method="POST"
+                                class="admin-edit-form"
+                            >
+                                <div class="admin-field">
+                                    <label>Full Name</label>
+                                    <input
+                                        type="text"
+                                        name="fullName"
+                                        value="<%= teacher.fullName %>"
+                                        required
+                                    >
+                                </div>
+
+                                <div class="admin-field">
+                                    <label>Email</label>
+                                    <input
+                                        type="email"
+                                        name="email"
+                                        value="<%= teacher.email %>"
+                                        required
+                                    >
+                                </div>
+
+                                <div class="admin-field">
+                                    <label>New Password</label>
+                                    <input
+                                        type="password"
+                                        name="password"
+                                        placeholder="Leave blank to keep old password"
+                                    >
+                                </div>
+
+                                <div class="admin-field">
+                                    <label>Employee ID</label>
+                                    <input
+                                        type="text"
+                                        name="employeeId"
+                                        value="<%= teacher.employeeId %>"
+                                        required
+                                    >
+                                </div>
+
+                                <div class="admin-field">
+                                    <label>Department</label>
+
+                                    <select name="department" required>
+                                        <option value="">Select Department</option>
+
+                                        <% if (departments && departments.length > 0) { %>
+                                            <% departments.forEach(function(department) { %>
+                                                <option
+                                                    value="<%= department %>"
+                                                    <%= teacher.department === department ? "selected" : "" %>
+                                                >
+                                                    <%= department %>
+                                                </option>
+                                            <% }) %>
+                                        <% } else { %>
+                                            <option value="<%= teacher.department %>" selected>
+                                                <%= teacher.department %>
+                                            </option>
+                                        <% } %>
+                                    </select>
+                                </div>
+
+                                <div class="admin-field">
+                                    <label>Role</label>
+                                    <select name="role" required>
+                                        <option value="TEACHER" <%= teacher.role === "TEACHER" ? "selected" : "" %>>
+                                            Teacher
+                                        </option>
+
+                                        <option value="HOD" <%= teacher.role === "HOD" ? "selected" : "" %>>
+                                            HOD
+                                        </option>
+                                    </select>
+                                </div>
+
+                                <button class="admin-primary-btn" type="submit">
+                                    Save Changes
+                                </button>
+                            </form>
+                        </details>
+
                     </article>
 
                 <% }) %>
@@ -188,8 +275,8 @@
 
 </div>
 
-</body>
-<script src="/js/adminValidation.js"></script>
 <script src="/js/adminSearch.js"></script>
 <script src="/js/adminSidebarToggle.js"></script>
+<script src="/js/adminValidation.js"></script>
+</body>
 </html>
