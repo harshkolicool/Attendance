@@ -362,4 +362,123 @@ router.post("/attendance/mark", isStudent, async (req, res) => {
     }
 });
 
+router.get("/attendance-history", isStudent, async (req, res) => {
+    try {
+        const student = await Student.findById(req.user._id)
+            .populate("classGroup")
+            .populate("subjects")
+            .populate("college");
+
+        if (!student) {
+            return res.redirect("/student/login");
+        }
+
+        // Get all sessions for this student's class group
+        const sessions = await AttendanceSession.find({
+            college: student.college._id,
+            classGroup: student.classGroup._id,
+            status: { $in: ["CLOSED", "EXPIRED", "ACTIVE"] }
+        }).populate("subject");
+
+        const sessionIds = sessions.map(s => s._id);
+
+        // Get all records for this student for these specific sessions
+        const records = await AttendanceRecord.find({
+            student: student._id,
+            attendanceSession: { $in: sessionIds }
+        });
+
+        // Overall stats
+        const totalSessions = sessions.length;
+        const totalPresent = records.filter(r => r.status === "PRESENT" || r.status === "LATE").length;
+        const totalAbsent = totalSessions - totalPresent;
+        const overallPercentage = totalSessions > 0 ? ((totalPresent / totalSessions) * 100).toFixed(1) : 0;
+
+        // Subject-wise breakdown
+        const subjectStats = {};
+
+        // Initialize subjects from student's enrolled subjects
+        student.subjects.forEach(sub => {
+            subjectStats[sub._id.toString()] = {
+                name: sub.subjectName,
+                code: sub.subjectCode,
+                total: 0,
+                present: 0,
+                absent: 0,
+                percentage: 0
+            };
+        });
+
+        // Count sessions per subject
+        sessions.forEach(session => {
+            const subId = session.subject._id.toString();
+            if (subjectStats[subId]) {
+                subjectStats[subId].total++;
+            }
+        });
+
+        // Count present records per subject
+        records.forEach(record => {
+            const subId = record.subject.toString();
+            if (subjectStats[subId] && (record.status === "PRESENT" || record.status === "LATE")) {
+                subjectStats[subId].present++;
+            }
+        });
+
+        // Finalize percentages and absent counts
+        Object.keys(subjectStats).forEach(subId => {
+            const stats = subjectStats[subId];
+            stats.absent = stats.total - stats.present;
+            stats.percentage = stats.total > 0 ? ((stats.present / stats.total) * 100).toFixed(1) : 0;
+        });
+
+        const days = [
+            "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
+        ];
+        const today = days[new Date().getDay()];
+
+        // Prepare Timeline (Today's sessions with status)
+        const timeline = sessions.map(session => {
+            const record = records.find(r => r.attendanceSession.toString() === session._id.toString());
+            let status = "ABSENT";
+            
+            if (record) {
+                status = record.status; // PRESENT, LATE, etc.
+            } else if (session.status === "ACTIVE") {
+                status = "LIVE";
+            }
+
+            return {
+                _id: session._id,
+                subject: session.subject,
+                startTime: session.startTime,
+                endTime: session.endTime,
+                status: status,
+                isToday: session.day === today // In a real app, you'd check the actual date
+            };
+        });
+
+        // Filter timeline to only show today's sessions (or all recent sessions)
+        // For this demo, let's show all for current day
+        const todayTimeline = timeline.filter(t => t.isToday).sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+        res.render("studentAttendanceHistory", {
+            student,
+            stats: {
+                totalSessions,
+                totalPresent,
+                totalAbsent,
+                overallPercentage
+            },
+            subjectStats: Object.values(subjectStats),
+            timeline: todayTimeline,
+            today: today
+        });
+
+    } catch (err) {
+        console.log("ATTENDANCE HISTORY ERROR:", err.message);
+        res.send("Attendance history error: " + err.message);
+    }
+});
+
 module.exports = router;
