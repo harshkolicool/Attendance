@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,430 +8,417 @@
 
     <link rel="stylesheet" href="/css/studentSchedule.css">
 
-    <link
-        rel="stylesheet"
-        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
-    >
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 </head>
+
 <body>
 
-<%
-    const scheduleList = schedules || [];
-    const activeList = activeSessions || [];
-    const markedList = markedSessionIds || [];
-    const statusMap = attendanceStatusBySchedule || {};
-
-    const firstName = student.fullName.split(" ")[0];
+    <% const scheduleList=schedules || []; const activeList=activeSessions || []; const markedList=markedSessionIds ||
+        []; const statusMap=attendanceStatusBySchedule || {}; const firstName=student.fullName.split(" ")[0];
 
     let presentCount = 0;
     let absentCount = 0;
 
     for (let key in statusMap) {
-        if (statusMap[key].status === "PRESENT") {
-            presentCount++;
-        }
-
-        if (statusMap[key].status === "ABSENT") {
-            absentCount++;
-        }
-    }
-
-    let percentage = 0;
-
-    if (scheduleList.length > 0) {
+        if (statusMap[key].status === " PRESENT") { presentCount++; } if (statusMap[key].status==="ABSENT" ) {
+        absentCount++; } } let percentage=0; if (scheduleList.length> 0) {
         percentage = Math.round((presentCount / scheduleList.length) * 100);
-    }
-%>
+        }
+        %>
 
-<div class="schedule-layout">
+        <div class="schedule-layout">
 
-    <aside class="schedule-sidebar">
-        <div class="student-welcome">
-            <div class="welcome-icon">
-                <i class="fa-solid fa-hand"></i>
-            </div>
-            <h2>Hi <%= firstName %>!</h2>
-        </div>
-
-        <nav class="sidebar-menu">
-            <a href="/student/dashboard" class="menu-item active">
-                <i class="fa-solid fa-house"></i>
-                <span>Home</span>
-            </a>
-
-            <a href="/student/schedule" class="menu-item">
-                <i class="fa-solid fa-calendar-days"></i>
-                <span>Schedule</span>
-            </a>
-
-            <a href="#" class="menu-item">
-                <i class="fa-solid fa-users"></i>
-                <span>Community</span>
-            </a>
-
-            <a href="/student/dashboard" class="menu-item">
-                <i class="fa-solid fa-chart-simple"></i>
-                <span>My Attendance</span>
-            </a>
-
-            <a href="#" class="menu-item">
-                <i class="fa-solid fa-credit-card"></i>
-                <span>Fee Payment</span>
-                <b></b>
-            </a>
-
-            <a href="#" class="menu-item">
-                <i class="fa-solid fa-book-open"></i>
-                <span>My Courses</span>
-            </a>
-        </nav>
-
-        <div class="academy-link">
-            <a href="#" class="menu-item">
-                <i class="fa-solid fa-circle-play"></i>
-                <span>Mirai Academy</span>
-            </a>
-        </div>
-
-        <p class="settings-title">Settings</p>
-
-        <form action="/logout" method="POST">
-            <button class="menu-item logout-btn" type="submit">
-                <i class="fa-solid fa-arrow-right-from-bracket"></i>
-                <span>Log Out</span>
-            </button>
-        </form>
-    </aside>
-
-    <main class="schedule-main">
-
-        <header class="dashboard-header">
-            <div>
-                <span class="dashboard-kicker">Student Panel</span>
-                <h1>Student Dashboard</h1>
-                <p>Mark your attendance when your teacher starts a session.</p>
-            </div>
-
-            <a href="/student/schedule" class="dashboard-action-btn">
-                <i class="fa-solid fa-calendar-days"></i>
-                View Schedule
-            </a>
-        </header>
-
-        <section class="dashboard-stats-grid">
-
-            <div class="dashboard-stat-card">
-                <div class="stat-icon blue">
-                    <i class="fa-solid fa-users-rectangle"></i>
-                </div>
-                <div>
-                    <span>Class Group</span>
-
-                    <% if (student.classGroup && student.classGroup.name) { %>
-                        <h2><%= student.classGroup.name %></h2>
-                    <% } else { %>
-                        <h2>N/A</h2>
-                    <% } %>
-                </div>
-            </div>
-
-            <div class="dashboard-stat-card">
-                <div class="stat-icon purple">
-                    <i class="fa-solid fa-book-open"></i>
-                </div>
-                <div>
-                    <span>Subjects</span>
-
-                    <% if (student.subjects) { %>
-                        <h2><%= student.subjects.length %></h2>
-                    <% } else { %>
-                        <h2>0</h2>
-                    <% } %>
-                </div>
-            </div>
-
-            <div class="dashboard-stat-card">
-                <div class="stat-icon green">
-                    <i class="fa-solid fa-broadcast-tower"></i>
-                </div>
-                <div>
-                    <span>Active Sessions</span>
-                    <h2><%= activeList.length %></h2>
-                </div>
-            </div>
-
-            <div class="dashboard-stat-card">
-                <div class="stat-icon green">
-                    <i class="fa-solid fa-circle-check"></i>
-                </div>
-                <div>
-                    <span>Present Today</span>
-                    <h2><%= presentCount %></h2>
-                </div>
-            </div>
-
-            <div class="dashboard-stat-card">
-                <div class="stat-icon red">
-                    <i class="fa-solid fa-circle-xmark"></i>
-                </div>
-                <div>
-                    <span>Absent Today</span>
-                    <h2><%= absentCount %></h2>
-                </div>
-            </div>
-
-            <div class="dashboard-stat-card">
-                <div class="stat-icon blue">
-                    <i class="fa-solid fa-chart-simple"></i>
-                </div>
-                <div>
-                    <span>Attendance</span>
-                    <h2><%= percentage %>%</h2>
-                </div>
-            </div>
-
-        </section>
-
-        <section class="dashboard-panel">
-            <div class="dashboard-panel-head">
-                <div>
-                    <h3>Today's Schedule</h3>
-                    <p>Your classes for <%= today %></p>
-                </div>
-
-                <span class="panel-count">
-                    <%= scheduleList.length %> Events
-                </span>
-            </div>
-
-            <div id="messageBox" class="schedule-message"></div>
-
-            <% if (scheduleList.length === 0) { %>
-                <div class="empty-schedule">
-                    <div>
-                        <i class="fa-solid fa-calendar-xmark"></i>
+            <aside class="schedule-sidebar">
+                <div class="student-welcome">
+                    <div class="welcome-icon">
+                        <i class="fa-solid fa-hand"></i>
                     </div>
-                    <h3>No classes today</h3>
-                    <p>You do not have any scheduled classes today.</p>
+                    <h2>Hi <%= firstName %>!</h2>
                 </div>
-            <% } %>
 
-            <div class="dashboard-class-list">
+                <nav class="sidebar-menu">
+                    <a href="/student/dashboard" class="menu-item active">
+                        <i class="fa-solid fa-house"></i>
+                        <span>Home</span>
+                    </a>
 
-                <% scheduleList.forEach(function(item) { %>
+                    <a href="/student/schedule" class="menu-item">
+                        <i class="fa-solid fa-calendar-days"></i>
+                        <span>Schedule</span>
+                    </a>
 
-                    <%
-                        let activeSession = null;
-                        let attendanceInfo = null;
+                    <a href="#" class="menu-item">
+                        <i class="fa-solid fa-users"></i>
+                        <span>Community</span>
+                    </a>
 
-                        if (statusMap[item._id.toString()]) {
-                            attendanceInfo = statusMap[item._id.toString()];
-                        }
+                    <a href="/student/attendance-history" class="menu-item">
+                        <i class="fa-solid fa-chart-simple"></i>
+                        <span>My Attendance</span>
+                    </a>
 
-                        activeList.forEach(function(session) {
-                            if (
-                                session.schedule &&
-                                session.schedule._id &&
-                                session.schedule._id.toString() === item._id.toString()
-                            ) {
-                                activeSession = session;
-                            } else if (
-                                !session.schedule &&
-                                session.subject &&
-                                item.subject &&
-                                session.classGroup &&
-                                item.classGroup &&
-                                session.subject._id.toString() === item.subject._id.toString() &&
-                                session.classGroup._id.toString() === item.classGroup._id.toString()
-                            ) {
-                                activeSession = session;
-                            }
-                        });
+                    <a href="#" class="menu-item">
+                        <i class="fa-solid fa-credit-card"></i>
+                        <span>Fee Payment</span>
+                        <b></b>
+                    </a>
 
-                        if (!attendanceInfo && activeSession) {
-                            if (markedList.includes(activeSession._id.toString())) {
-                                attendanceInfo = {
-                                    status: "PRESENT",
-                                    sessionId: activeSession._id.toString()
-                                };
-                            }
-                        }
-                    %>
+                    <a href="#" class="menu-item">
+                        <i class="fa-solid fa-book-open"></i>
+                        <span>My Courses</span>
+                    </a>
+                </nav>
 
-                    <article class="dashboard-class-card">
+                <div class="academy-link">
+                    <a href="#" class="menu-item">
+                        <i class="fa-solid fa-circle-play"></i>
+                        <span>Mirai Academy</span>
+                    </a>
+                </div>
 
-                        <div class="dashboard-class-left">
-                            <div class="class-dot">
-                                <i class="fa-solid fa-book"></i>
-                            </div>
+                <p class="settings-title">Settings</p>
 
-                            <div>
-                                <% if (item.subject) { %>
-                                    <h4><%= item.subject.subjectName %></h4>
+                <form action="/logout" method="POST">
+                    <button class="menu-item logout-btn" type="submit">
+                        <i class="fa-solid fa-arrow-right-from-bracket"></i>
+                        <span>Log Out</span>
+                    </button>
+                </form>
+            </aside>
+
+            <main class="schedule-main">
+
+                <header class="dashboard-header">
+                    <div>
+                        <span class="dashboard-kicker">Student Panel</span>
+                        <h1>Student Dashboard</h1>
+                        <p>Mark your attendance when your teacher starts a session.</p>
+                    </div>
+
+                    <a href="/student/schedule" class="dashboard-action-btn">
+                        <i class="fa-solid fa-calendar-days"></i>
+                        View Schedule
+                    </a>
+                </header>
+
+                <section class="dashboard-stats-grid">
+
+                    <div class="dashboard-stat-card">
+                        <div class="stat-icon blue">
+                            <i class="fa-solid fa-users-rectangle"></i>
+                        </div>
+                        <div>
+                            <span>Class Group</span>
+
+                            <% if (student.classGroup && student.classGroup.name) { %>
+                                <h2>
+                                    <%= student.classGroup.name %>
+                                </h2>
                                 <% } else { %>
-                                    <h4>Subject Missing</h4>
-                                <% } %>
-
-                                <p>
-                                    <% if (item.teacher) { %>
-                                        <i class="fa-solid fa-chalkboard-user"></i>
-                                        <%= item.teacher.fullName %>
-                                    <% } else { %>
-                                        Teacher Missing
+                                    <h2>N/A</h2>
                                     <% } %>
+                        </div>
+                    </div>
 
-                                    ·
+                    <div class="dashboard-stat-card">
+                        <div class="stat-icon purple">
+                            <i class="fa-solid fa-book-open"></i>
+                        </div>
+                        <div>
+                            <span>Subjects</span>
 
-                                    <% if (item.classroom) { %>
-                                        <i class="fa-solid fa-location-dot"></i>
-                                        <%= item.classroom.classroomName %>
-                                    <% } else { %>
-                                        Room Missing
+                            <% if (student.subjects) { %>
+                                <h2>
+                                    <%= student.subjects.length %>
+                                </h2>
+                                <% } else { %>
+                                    <h2>0</h2>
                                     <% } %>
-                                </p>
+                        </div>
+                    </div>
 
-                                <small>
-                                    <i class="fa-regular fa-clock"></i>
-                                    <%= item.startTime %> - <%= item.endTime %>
-                                </small>
+                    <div class="dashboard-stat-card">
+                        <div class="stat-icon green">
+                            <i class="fa-solid fa-broadcast-tower"></i>
+                        </div>
+                        <div>
+                            <span>Active Sessions</span>
+                            <h2>
+                                <%= activeList.length %>
+                            </h2>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-stat-card">
+                        <div class="stat-icon green">
+                            <i class="fa-solid fa-circle-check"></i>
+                        </div>
+                        <div>
+                            <span>Present Today</span>
+                            <h2>
+                                <%= presentCount %>
+                            </h2>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-stat-card">
+                        <div class="stat-icon red">
+                            <i class="fa-solid fa-circle-xmark"></i>
+                        </div>
+                        <div>
+                            <span>Absent Today</span>
+                            <h2>
+                                <%= absentCount %>
+                            </h2>
+                        </div>
+                    </div>
+
+                    <a href="/student/attendance-history" class="dashboard-stat-card" style="text-decoration: none; color: inherit; display: flex;">
+                        <div class="stat-icon blue">
+                            <i class="fa-solid fa-chart-simple"></i>
+                        </div>
+                        <div>
+                            <span>Attendance</span>
+                            <h2>
+                                <%= percentage %>%
+                            </h2>
+                        </div>
+                    </a>
+
+                </section>
+
+                <section class="dashboard-panel">
+                    <div class="dashboard-panel-head">
+                        <div>
+                            <h3>Today's Schedule</h3>
+                            <p>Your classes for <%= today %>
+                            </p>
+                        </div>
+
+                        <span class="panel-count">
+                            <%= scheduleList.length %> Events
+                        </span>
+                    </div>
+
+                    <div id="messageBox" class="schedule-message"></div>
+
+                    <% if (scheduleList.length===0) { %>
+                        <div class="empty-schedule">
+                            <div>
+                                <i class="fa-solid fa-calendar-xmark"></i>
                             </div>
+                            <h3>No classes today</h3>
+                            <p>You do not have any scheduled classes today.</p>
                         </div>
+                        <% } %>
 
-                        <div class="dashboard-class-action">
+                            <div class="dashboard-class-list">
 
-                            <% if (attendanceInfo && attendanceInfo.status === "PRESENT") { %>
+                                <% scheduleList.forEach(function(item) { %>
 
-                                <span class="status-badge present">
-                                    <i class="fa-solid fa-circle-check"></i>
-                                    Present
-                                </span>
+                                    <% let activeSession=null; let attendanceInfo=null; if
+                                        (statusMap[item._id.toString()]) {
+                                        attendanceInfo=statusMap[item._id.toString()]; }
+                                        activeList.forEach(function(session) { if ( session.schedule &&
+                                        session.schedule._id && session.schedule._id.toString()===item._id.toString() )
+                                        { activeSession=session; } else if ( !session.schedule && session.subject &&
+                                        item.subject && session.classGroup && item.classGroup &&
+                                        session.subject._id.toString()===item.subject._id.toString() &&
+                                        session.classGroup._id.toString()===item.classGroup._id.toString() ) {
+                                        activeSession=session; } }); if (!attendanceInfo && activeSession) { if
+                                        (markedList.includes(activeSession._id.toString())) { attendanceInfo={
+                                        status: "PRESENT" , sessionId: activeSession._id.toString() }; } } %>
 
-                                <button class="view-btn marked" type="button" disabled>
-                                    Attendance Marked
-                                </button>
+                                        <article class="dashboard-class-card">
 
-                            <% } else if (attendanceInfo && attendanceInfo.status === "ABSENT") { %>
+                                            <div class="dashboard-class-left">
+                                                <div class="class-dot">
+                                                    <i class="fa-solid fa-book"></i>
+                                                </div>
 
-                                <span class="status-badge absent">
-                                    <i class="fa-solid fa-circle-xmark"></i>
-                                    Absent
-                                </span>
+                                                <div>
+                                                    <% if (item.subject) { %>
+                                                        <h4>
+                                                            <%= item.subject.subjectName %>
+                                                        </h4>
+                                                        <% } else { %>
+                                                            <h4>Subject Missing</h4>
+                                                            <% } %>
 
-                                <button class="view-btn marked" type="button" disabled>
-                                    Marked Absent
-                                </button>
+                                                                <p>
+                                                                    <% if (item.teacher) { %>
+                                                                        <i class="fa-solid fa-chalkboard-user"></i>
+                                                                        <%= item.teacher.fullName %>
+                                                                            <% } else { %>
+                                                                                Teacher Missing
+                                                                                <% } %>
 
-                            <% } else if (activeSession) { %>
+                                                                                    ·
 
-                                <span class="status-badge live">
-                                    <i class="fa-solid fa-circle-dot"></i>
-                                    Live Now
-                                </span>
+                                                                                    <% if (item.classroom) { %>
+                                                                                        <i
+                                                                                            class="fa-solid fa-location-dot"></i>
+                                                                                        <%= item.classroom.classroomName
+                                                                                            %>
+                                                                                            <% } else { %>
+                                                                                                Room Missing
+                                                                                                <% } %>
+                                                                </p>
 
-                                <button
-                                    class="view-btn live"
-                                    type="button"
-                                    onclick="markAttendance('<%= activeSession._id %>', this)">
-                                    Mark Attendance
-                                </button>
+                                                                <small>
+                                                                    <i class="fa-regular fa-clock"></i>
+                                                                    <%= item.startTime %> - <%= item.endTime %>
+                                                                </small>
+                                                </div>
+                                            </div>
 
+                                            <div class="dashboard-class-action">
+
+                                                <% if (attendanceInfo && attendanceInfo.status==="PRESENT" ) { %>
+
+                                                    <span class="status-badge present">
+                                                        <i class="fa-solid fa-circle-check"></i>
+                                                        Present
+                                                    </span>
+
+                                                    <button class="view-btn marked" type="button" disabled>
+                                                        Attendance Marked
+                                                    </button>
+
+                                                    <% } else if (attendanceInfo && attendanceInfo.status==="ABSENT" ) {
+                                                        %>
+
+                                                        <span class="status-badge absent">
+                                                            <i class="fa-solid fa-circle-xmark"></i>
+                                                            Absent
+                                                        </span>
+
+                                                        <button class="view-btn marked" type="button" disabled>
+                                                            Marked Absent
+                                                        </button>
+
+                                                        <% } else if (activeSession) { %>
+
+                                                            <span class="status-badge live">
+                                                                <i class="fa-solid fa-circle-dot"></i>
+                                                                Live Now
+                                                            </span>
+
+                                                            <button class="view-btn live" type="button"
+                                                                onclick="markAttendance('<%= activeSession._id %>', this)">
+                                                                Mark Attendance
+                                                            </button>
+
+                                                            <% } else { %>
+
+                                                                <span class="status-badge waiting">
+                                                                    <i class="fa-regular fa-clock"></i>
+                                                                    Not Started
+                                                                </span>
+
+                                                                <button class="view-btn" type="button" disabled>
+                                                                    View Details
+                                                                </button>
+
+                                                                <% } %>
+
+                                            </div>
+
+                                        </article>
+
+                                        <% }) %>
+
+                            </div>
+                </section>
+
+            </main>
+
+            <aside class="profile-panel">
+                <div class="profile-card">
+                    <div class="avatar-circle">
+                        <%= student.fullName.charAt(0).toUpperCase() %>
+                    </div>
+
+                    <div>
+                        <h3>
+                            <%= student.fullName %>
+                        </h3>
+                        <a href="#">Open Profile</a>
+                    </div>
+                </div>
+
+                <div class="side-card">
+                    <div class="side-card-icon blue">
+                        <i class="fa-solid fa-users-rectangle"></i>
+                    </div>
+                    <div>
+                        <h4>Class Group</h4>
+                        <% if (student.classGroup && student.classGroup.name) { %>
+                            <p>
+                                <%= student.classGroup.name %>
+                            </p>
                             <% } else { %>
+                                <p>N/A</p>
+                                <% } %>
+                    </div>
+                </div>
 
-                                <span class="status-badge waiting">
-                                    <i class="fa-regular fa-clock"></i>
-                                    Not Started
-                                </span>
+                <div class="side-card">
+                    <div class="side-card-icon purple">
+                        <i class="fa-solid fa-book-open"></i>
+                    </div>
+                    <div>
+                        <h4>Subjects</h4>
+                        <% if (student.subjects) { %>
+                            <p>
+                                <%= student.subjects.length %> Subjects
+                            </p>
+                            <% } else { %>
+                                <p>0 Subjects</p>
+                                <% } %>
+                    </div>
+                </div>
 
-                                <button class="view-btn" type="button" disabled>
-                                    View Details
-                                </button>
+                <div class="side-card">
+                    <div class="side-card-icon green">
+                        <i class="fa-solid fa-broadcast-tower"></i>
+                    </div>
+                    <div>
+                        <h4>Live Sessions</h4>
+                        <p>
+                            <%= activeList.length %> Active
+                        </p>
+                    </div>
+                </div>
 
-                            <% } %>
+                <div class="side-card">
+                    <div class="side-card-icon green">
+                        <i class="fa-solid fa-circle-check"></i>
+                    </div>
+                    <div>
+                        <h4>Present Today</h4>
+                        <p>
+                            <%= presentCount %> Classes
+                        </p>
+                    </div>
+                </div>
 
-                        </div>
+                <div class="side-card">
+                    <div class="side-card-icon purple">
+                        <i class="fa-solid fa-circle-xmark"></i>
+                    </div>
+                    <div>
+                        <h4>Absent Today</h4>
+                        <p>
+                            <%= absentCount %> Classes
+                        </p>
+                    </div>
+                </div>
+            </aside>
 
-                    </article>
-
-                <% }) %>
-
-            </div>
-        </section>
-
-    </main>
-
-    <aside class="profile-panel">
-        <div class="profile-card">
-            <div class="avatar-circle">
-                <%= student.fullName.charAt(0).toUpperCase() %>
-            </div>
-
-            <div>
-                <h3><%= student.fullName %></h3>
-                <a href="#">Open Profile</a>
-            </div>
         </div>
-
-        <div class="side-card">
-            <div class="side-card-icon blue">
-                <i class="fa-solid fa-users-rectangle"></i>
-            </div>
-            <div>
-                <h4>Class Group</h4>
-                <% if (student.classGroup && student.classGroup.name) { %>
-                    <p><%= student.classGroup.name %></p>
-                <% } else { %>
-                    <p>N/A</p>
-                <% } %>
-            </div>
-        </div>
-
-        <div class="side-card">
-            <div class="side-card-icon purple">
-                <i class="fa-solid fa-book-open"></i>
-            </div>
-            <div>
-                <h4>Subjects</h4>
-                <% if (student.subjects) { %>
-                    <p><%= student.subjects.length %> Subjects</p>
-                <% } else { %>
-                    <p>0 Subjects</p>
-                <% } %>
-            </div>
-        </div>
-
-        <div class="side-card">
-            <div class="side-card-icon green">
-                <i class="fa-solid fa-broadcast-tower"></i>
-            </div>
-            <div>
-                <h4>Live Sessions</h4>
-                <p><%= activeList.length %> Active</p>
-            </div>
-        </div>
-
-        <div class="side-card">
-            <div class="side-card-icon green">
-                <i class="fa-solid fa-circle-check"></i>
-            </div>
-            <div>
-                <h4>Present Today</h4>
-                <p><%= presentCount %> Classes</p>
-            </div>
-        </div>
-
-        <div class="side-card">
-            <div class="side-card-icon purple">
-                <i class="fa-solid fa-circle-xmark"></i>
-            </div>
-            <div>
-                <h4>Absent Today</h4>
-                <p><%= absentCount %> Classes</p>
-            </div>
-        </div>
-    </aside>
-
-</div>
 
 </body>
 <script src="/js/studentLocation.js"></script>
+
 </html>
