@@ -36,7 +36,13 @@ const studentAttendanceSnapshotSchema = new mongoose.Schema(
 
         verificationMethod: {
             type: String,
-            enum: ["GEOLOCATION", "MANUAL", "AUTO_ABSENT"],
+            enum: [
+                "GEOLOCATION",
+                "PASSKEY_GEOLOCATION",
+                "TRUSTED_DEVICE_GEOLOCATION",
+                "MANUAL",
+                "AUTO_ABSENT"
+            ],
             default: "GEOLOCATION"
         },
 
@@ -95,10 +101,22 @@ const attendanceSessionSchema = new mongoose.Schema({
         type: Number
     },
 
+    teacherGpsAccuracy: {
+        type: Number
+    },
+
+    locationSource: {
+        type: String,
+        enum: ["TEACHER_GPS"],
+        default: "TEACHER_GPS"
+    },
+
     radius: {
         type: Number,
         default: 100
     },
+
+
 
     startTime: {
         type: Date,
@@ -122,6 +140,14 @@ const attendanceSessionSchema = new mongoose.Schema({
     },
 
     closedAt: {
+        type: Date
+    },
+
+    expiredAt: {
+        type: Date
+    },
+
+    absentsMarkedAt: {
         type: Date
     },
 
@@ -176,7 +202,7 @@ attendanceSessionSchema.index({
     startTime: 1
 });
 
-const AttendanceSession = mongoose.model(
+const AttendanceSession = mongoose.models.AttendanceSession || mongoose.model(
     "AttendanceSession",
     attendanceSessionSchema
 );

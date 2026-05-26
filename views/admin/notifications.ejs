@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notifications | Admin</title>
+
+    <link rel="stylesheet" href="/css/adminTheme.css">
+    <link rel="stylesheet" href="/css/uiShell.css">
+    <link rel="stylesheet" href="/css/finalUiFix.css">
+
+    <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+    >
+</head>
+<body>
+
+<div class="admin-layout">
+    <%- include("partials/sidebar", { activePage }) %>
+
+    <main class="admin-main">
+        <header class="admin-header">
+            <div>
+                <span class="admin-kicker">Admin Panel</span>
+                <h1>Notifications</h1>
+                <p>Approve passkey requests and review admin alerts.</p>
+            </div>
+        </header>
+
+        <% if (message) { %>
+            <% const adminNotificationFlash = String(message || "").toLowerCase(); %>
+            <div class="admin-alert <%= adminNotificationFlash.includes('success') || adminNotificationFlash.includes('approved') || adminNotificationFlash.includes('rejected') || adminNotificationFlash.includes('read') || adminNotificationFlash.includes('deleted') || adminNotificationFlash.includes('cleared') ? 'success' : 'error' %>">
+                <%= message %>
+            </div>
+        <% } %>
+
+        <section class="admin-card">
+            <div class="admin-card-head">
+                <div>
+                    <h3>Pending Passkey Requests</h3>
+                    <p>Students waiting for passkey setup approval.</p>
+                </div>
+
+                <span class="admin-count-pill">
+                    <%= pendingPasskeyRequests ? pendingPasskeyRequests.length : 0 %> Pending
+                </span>
+            </div>
+
+            <% if (!pendingPasskeyRequests || pendingPasskeyRequests.length === 0) { %>
+                <div class="admin-empty">
+                    No pending passkey requests.
+                </div>
+            <% } else { %>
+                <div class="admin-grid">
+                    <% pendingPasskeyRequests.forEach(function(request) { %>
+                        <article class="admin-item-card">
+                            <h4><%= request.student ? request.student.fullName : "Student" %></h4>
+                            <p><%= request.student ? request.student.enrollmentNumber : "-" %></p>
+
+                            <div class="admin-meta">
+                                <span class="admin-badge">
+                                    <i class="fa-solid fa-graduation-cap"></i>
+                                    <%= request.student && request.student.classGroup && request.student.classGroup.name ? request.student.classGroup.name : "Class Group" %>
+                                </span>
+                                <span class="admin-badge">
+                                    Requested: <%= new Date(request.requestedAt || request.createdAt).toLocaleString() %>
+                                </span>
+                            </div>
+
+                            <div class="admin-student-actions">
+                                <form action="/admin/passkey-requests/<%= request._id %>/approve" method="POST">
+                                    <button class="admin-secondary-btn" type="submit">
+                                        <i class="fa-solid fa-circle-check"></i>
+                                        Approve (30m)
+                                    </button>
+                                </form>
+
+                                <form action="/admin/passkey-requests/<%= request._id %>/reject" method="POST">
+                                    <input
+                                        type="text"
+                                        name="reviewNote"
+                                        placeholder="Reason (optional)"
+                                        class="admin-inline-input"
+                                    >
+                                    <button class="admin-warning-btn" type="submit">
+                                        <i class="fa-solid fa-circle-xmark"></i>
+                                        Reject
+                                    </button>
+                                </form>
+                            </div>
+                        </article>
+                    <% }) %>
+                </div>
+            <% } %>
+        </section>
+
+        <section class="admin-card">
+            <div class="admin-card-head">
+                <div>
+                    <h3>Notification Inbox</h3>
+                    <p>Recent admin notifications.</p>
+                </div>
+
+                <div class="notification-head-actions">
+                    <span class="admin-count-pill"><%= unreadCount %> Unread</span>
+
+                    <form action="/admin/notifications/mark-all-read" method="POST">
+                        <button class="admin-secondary-btn" type="submit">
+                            <i class="fa-solid fa-check-double"></i>
+                            Mark All Read
+                        </button>
+                    </form>
+
+                    <form
+                        action="/admin/notifications/clear-all"
+                        method="POST"
+                        onsubmit="return confirm('Clear all notifications? This cannot be undone.')"
+                    >
+                        <button class="admin-warning-btn notification-delete-btn" type="submit">
+                            <i class="fa-solid fa-trash"></i>
+                            Clear All
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <% if (!notifications || notifications.length === 0) { %>
+                <div class="admin-empty">
+                    No notifications yet.
+                </div>
+            <% } else { %>
+                <div class="notification-list">
+                    <% notifications.forEach(function(notification) { %>
+                        <article class="notification-card <%= notification.isRead ? 'read' : 'unread' %>">
+                            <div class="notification-top">
+                                <h4><%= notification.title %></h4>
+                                <span><%= new Date(notification.createdAt).toLocaleString() %></span>
+                            </div>
+
+                            <p><%= notification.message %></p>
+
+                            <div class="notification-meta">
+                                <span class="admin-badge"><%= notification.category || "GENERAL" %></span>
+
+                                <% if (notification.link) { %>
+                                    <a class="admin-secondary-btn notification-open-link" href="<%= notification.link %>">
+                                        <i class="fa-solid fa-arrow-up-right-from-square"></i>
+                                        Open
+                                    </a>
+                                <% } %>
+
+                                <% if (!notification.isRead) { %>
+                                    <form action="/admin/notifications/<%= notification.id %>/read" method="POST">
+                                        <button class="admin-primary-btn notification-action-btn" type="submit">
+                                            <i class="fa-solid fa-check"></i>
+                                            Mark Read
+                                        </button>
+                                    </form>
+                                <% } %>
+
+                                <form
+                                    action="/admin/notifications/<%= notification.id %>/delete"
+                                    method="POST"
+                                    onsubmit="return confirm('Delete this notification?')"
+                                >
+                                    <button class="admin-warning-btn notification-delete-btn notification-action-btn" type="submit">
+                                        <i class="fa-solid fa-trash"></i>
+                                        Delete
+                                    </button>
+                                </form>
+                            </div>
+                        </article>
+                    <% }) %>
+                </div>
+            <% } %>
+        </section>
+    </main>
+</div>
+
+<script src="/js/uiShell.js"></script>
+</body>
+</html>

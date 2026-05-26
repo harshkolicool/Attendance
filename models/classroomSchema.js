@@ -22,7 +22,7 @@ const classroomSchema = new mongoose.Schema({
     radius: {
         type: Number,
         default: 100,
-        min: 10,
+        min: 1,
         max: 10000
     },
 
@@ -44,7 +44,16 @@ const classroomSchema = new mongoose.Schema({
             type: mongoose.Schema.Types.ObjectId,
             ref: "AttendanceSession"
         }
-    ]
+    ],
+
+    isDeleted: {
+        type: Boolean,
+        default: false
+    },
+
+    deletedAt: {
+        type: Date
+    }
 
 }, {
     timestamps: true
@@ -62,6 +71,6 @@ classroomSchema.index(
     }
 );
 
-const Classroom = mongoose.model("Classroom", classroomSchema);
+const Classroom = mongoose.models.Classroom || mongoose.model("Classroom", classroomSchema);
 
 module.exports = Classroom;

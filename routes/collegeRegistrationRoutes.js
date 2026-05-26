@@ -4,6 +4,11 @@ const router = express.Router();
 const College = require("../models/collegeSchema");
 const Teacher = require("../models/teacherSchema");
 const CollegeRegistrationRequest = require("../models/collegeRegistrationRequestSchema");
+const {
+    createNotification,
+    getUnreadCount
+} = require("../utils/notificationService");
+const socketManager = require("../utils/socketManager");
 
 function cleanText(value) {
     if (!value) {
@@ -161,6 +166,35 @@ router.post("/college/register", async function (req, res) {
             adminEmail,
             adminPhone,
             status: "PENDING"
+        });
+
+        const platformNotification = await createNotification({
+            recipientRole: "PLATFORM_ADMIN",
+            title: "New college registration request",
+            message:
+                collegeName +
+                " submitted a new college onboarding request.",
+            category: "COLLEGE_REQUEST",
+            level: "warning",
+            link: "/platform-admin/requests?status=PENDING",
+            metadata: {
+                collegeName: collegeName,
+                city: city,
+                state: state,
+                adminEmail: adminEmail
+            },
+            createdByType: "system"
+        });
+
+        socketManager.emitNotification(platformNotification);
+
+        const platformUnreadCount = await getUnreadCount({
+            recipientRole: "PLATFORM_ADMIN"
+        });
+
+        socketManager.emitNotificationUnreadCount({
+            recipientRole: "PLATFORM_ADMIN",
+            unreadCount: platformUnreadCount
         });
 
         res.redirect("/college/register?message=submitted");

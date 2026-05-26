@@ -4,7 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Teacher Dashboard | Attendify</title>
+
     <link rel="stylesheet" href="/css/teacherDashboard.css">
+
+    <link rel="stylesheet" href="/css/uiShell.css">
+    <link rel="stylesheet" href="/css/finalUiFix.css">
+
     <link
         rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
@@ -13,61 +18,232 @@
 <body>
 
 <%
-    const firstName = teacher.fullName.split(" ")[0];
     const now = new Date();
     const currentDate = now.getDate();
+
+    function parseTeacherTimeToMinutes(timeValue) {
+        if (!timeValue) {
+            return Number.MAX_SAFE_INTEGER;
+        }
+
+        const raw = String(timeValue).trim().toUpperCase();
+        const amPmMatch = raw.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/);
+
+        if (amPmMatch) {
+            let hours = Number(amPmMatch[1]) % 12;
+            const minutes = Number(amPmMatch[2]);
+
+            if (amPmMatch[3] === "PM") {
+                hours += 12;
+            }
+
+            return (hours * 60) + minutes;
+        }
+
+        const plainMatch = raw.match(/^(\d{1,2}):(\d{2})$/);
+        if (plainMatch) {
+            return (Number(plainMatch[1]) * 60) + Number(plainMatch[2]);
+        }
+
+        return Number.MAX_SAFE_INTEGER;
+    }
+
+    function getScheduleCardStateKey(card) {
+        if (card.liveSession) {
+            return "live";
+        }
+
+        if (card.canStart) {
+            return "ready";
+        }
+
+        if (card.showManual) {
+            return "manual";
+        }
+
+        if (card.todaySession || card.manualAlreadyDone) {
+            return "recorded";
+        }
+
+        if (card.timeStatus === "upcoming") {
+            return "upcoming";
+        }
+
+        if (card.timeStatus === "ended") {
+            return "ended";
+        }
+
+        return "invalid";
+    }
+
+    function getScheduleCardStateLabel(stateKey) {
+        if (stateKey === "live") {
+            return "Live";
+        }
+
+        if (stateKey === "ready") {
+            return "Ready";
+        }
+
+        if (stateKey === "manual") {
+            return "Manual";
+        }
+
+        if (stateKey === "recorded") {
+            return "Recorded";
+        }
+
+        if (stateKey === "upcoming") {
+            return "Upcoming";
+        }
+
+        if (stateKey === "ended") {
+            return "Ended";
+        }
+
+        return "Invalid";
+    }
+
+    const scheduleDirectoryMap = {};
+    const scheduleRoomOptionMap = {};
+    const scheduleStateOptionMap = {};
+
+    (scheduleCards || []).forEach(function(card) {
+        const scheduleItem = card.schedule || {};
+        const stateKey = getScheduleCardStateKey(card);
+        const classGroup = scheduleItem.classGroup || null;
+
+        let groupId = "missing";
+        let groupName = "Class Group Missing";
+        let groupMeta = "Schedules without linked class group";
+        let groupSortKey = "zzz-missing";
+
+        if (classGroup && classGroup._id) {
+            const department = classGroup.department || "";
+            const semester = classGroup.semester || "";
+            const section = classGroup.section || "";
+
+            groupId = classGroup._id.toString();
+            groupName = classGroup.name || "Unnamed Class Group";
+            groupMeta = [
+                department,
+                semester ? "Sem " + semester : "",
+                section ? "Section " + section : ""
+            ].filter(Boolean).join(" · ");
+
+            if (!groupMeta) {
+                groupMeta = "Class metadata not set";
+            }
+
+            groupSortKey = [
+                department || "zzz",
+                String(semester || 99).padStart(2, "0"),
+                section || "ZZ",
+                groupName
+            ].join("-");
+        }
+
+        if (!scheduleDirectoryMap[groupId]) {
+            scheduleDirectoryMap[groupId] = {
+                id: groupId,
+                name: groupName,
+                meta: groupMeta,
+                sortKey: groupSortKey,
+                roomMap: {},
+                cards: []
+            };
+        }
+
+        if (scheduleItem.classroom) {
+            const roomToken = scheduleItem.classroom._id
+                ? scheduleItem.classroom._id.toString()
+                : (scheduleItem.classroom.classroomName || "missing-room");
+            const roomLabel = [
+                scheduleItem.classroom.classroomName || "Room Missing",
+                scheduleItem.classroom.buildingName || ""
+            ].filter(Boolean).join(" · ");
+
+            scheduleDirectoryMap[groupId].roomMap[roomToken] = roomLabel;
+            scheduleRoomOptionMap[roomToken] = roomLabel;
+        }
+
+        scheduleStateOptionMap[stateKey] = getScheduleCardStateLabel(stateKey);
+        scheduleDirectoryMap[groupId].cards.push(card);
+    });
+
+    const scheduleStateOrder = {
+        live: 1,
+        ready: 2,
+        manual: 3,
+        recorded: 4,
+        upcoming: 5,
+        ended: 6,
+        invalid: 7
+    };
+
+    const scheduleDirectoryGroups = Object.values(scheduleDirectoryMap).sort(function(first, second) {
+        return first.sortKey.localeCompare(second.sortKey);
+    });
+
+    scheduleDirectoryGroups.forEach(function(group) {
+        group.cards.sort(function(firstCard, secondCard) {
+            const firstTime = parseTeacherTimeToMinutes(firstCard.schedule ? firstCard.schedule.startTime : "");
+            const secondTime = parseTeacherTimeToMinutes(secondCard.schedule ? secondCard.schedule.startTime : "");
+            return firstTime - secondTime;
+        });
+    });
+
+    const scheduleGroupOptions = scheduleDirectoryGroups
+        .filter(function(group) { return group.id !== "missing"; })
+        .map(function(group) {
+            return {
+                value: group.id,
+                label: group.name
+            };
+        });
+
+    const scheduleRoomOptions = Object.keys(scheduleRoomOptionMap)
+        .map(function(roomToken) {
+            return {
+                value: roomToken,
+                label: scheduleRoomOptionMap[roomToken]
+            };
+        })
+        .sort(function(first, second) {
+            return first.label.localeCompare(second.label);
+        });
+
+    const scheduleStateOptions = Object.keys(scheduleStateOptionMap)
+        .map(function(stateKey) {
+            return {
+                value: stateKey,
+                label: scheduleStateOptionMap[stateKey]
+            };
+        })
+        .sort(function(first, second) {
+            return (scheduleStateOrder[first.value] || 99) - (scheduleStateOrder[second.value] || 99);
+        });
 %>
 
 <div class="teacher-layout">
 
-    <aside class="teacher-sidebar">
-        <a href="/" class="brand-box">
-            <span><i class="fa-solid fa-clipboard-check"></i></span>
-            Attendify
-        </a>
+    <%- include("teacher/partials/sidebar", { activePage: activePage || "dashboard", teacher }) %>
 
-        <div class="teacher-greeting">
-            <h2>Hi <%= firstName %>!</h2>
-            <p>Teacher Panel</p>
-        </div>
-
-        <nav class="sidebar-menu">
-            <a href="/teacher/dashboard" class="menu-link active">
-                <i class="fa-solid fa-house"></i>
-                <span>Dashboard</span>
-            </a>
-            <a href="#attendance-section" class="menu-link">
-                <i class="fa-solid fa-user-check"></i>
-                <span>Attendance</span>
-            </a>
-            <a href="#" class="menu-link">
-                <i class="fa-solid fa-book"></i>
-                <span>Subjects</span>
-            </a>
-            <a href="#" class="menu-link">
-                <i class="fa-solid fa-chart-line"></i>
-                <span>Reports</span>
-            </a>
-        </nav>
-
-        <p class="settings-text">Settings</p>
-
-        <form action="/logout" method="POST">
-            <button class="logout-btn" type="submit">
-                <i class="fa-solid fa-arrow-right-from-bracket"></i>
-                Log Out
-            </button>
-        </form>
-    </aside>
-
-    <main class="teacher-main">
+    <main class="teacher-main teacher-dashboard-page">
 
         <header class="teacher-header">
             <div>
+                <span class="teacher-kicker">Teacher Panel</span>
                 <h1>Today's Schedule</h1>
-                <p><i class="fa-regular fa-calendar"></i> <%= today %> — manage class attendance</p>
+                <p>
+                    <i class="fa-regular fa-calendar"></i>
+                    <%= today %> — manage class attendance
+                </p>
             </div>
-            <div class="date-box"><%= currentDate %></div>
+
+            <div class="date-box" aria-label="Today's date">
+                <span><%= currentDate %></span>
+            </div>
         </header>
 
         <% if (error) { %>
@@ -85,124 +261,312 @@
         <% } %>
 
         <section class="stats-row">
+
             <div class="stat-box">
                 <span>Today's Classes</span>
                 <h3><%= schedules.length %></h3>
             </div>
+
             <div class="stat-box">
                 <span>Active Sessions</span>
                 <h3><%= activeSessions.length %></h3>
             </div>
+
             <div class="stat-box">
                 <span>Manual Pending</span>
                 <h3><%= manualAttendanceList.length %></h3>
             </div>
+
         </section>
 
         <section class="content-area">
 
-            <div class="panel-box">
-                <h3 class="panel-title"><i class="fa-solid fa-list-check"></i> Schedule</h3>
-                <p class="panel-subtitle">Start is only available during class time</p>
+            <div class="panel-box teacher-schedule-panel" id="schedule-section">
+                <div class="teacher-schedule-panel-head">
+                    <div>
+                        <h3 class="panel-title">
+                            <i class="fa-solid fa-list-check"></i>
+                            Schedule
+                        </h3>
+
+                        <p class="panel-subtitle">
+                            Live attendance can be started only during the scheduled class time.
+                        </p>
+                    </div>
+                </div>
 
                 <% if (scheduleCards.length === 0) { %>
                     <div class="empty-box">
                         <div><i class="fa-solid fa-calendar-xmark"></i></div>
                         <p>No classes scheduled for today</p>
                     </div>
-                <% } %>
+                <% } else { %>
 
-                <% scheduleCards.forEach(function(card) { %>
-                    <% const item = card.schedule; %>
+                    <div class="teacher-schedule-toolbar-card">
 
-                    <div class="class-card">
-                        <div class="time-box">
-                            <strong><%= item.startTime %></strong>
-                            <span><%= item.endTime %></span>
-                        </div>
+                        <div class="teacher-schedule-search-row">
+                            <label for="teacherScheduleSearchInput">Search Schedule</label>
 
-                        <div class="class-info">
-                            <% if (item.subject) { %>
-                                <h4><%= item.subject.subjectName %></h4>
-                            <% } else { %>
-                                <h4>Subject Missing</h4>
-                            <% } %>
-
-                            <p>
-                                <% if (item.classGroup) { %>
-                                    <i class="fa-solid fa-users"></i> <%= item.classGroup.name %>
-                                <% } else { %>
-                                    Class Missing
-                                <% } %>
-                                ·
-                                <% if (item.classroom) { %>
-                                    <i class="fa-solid fa-location-dot"></i> <%= item.classroom.classroomName %>
-                                <% } else { %>
-                                    Room Missing
-                                <% } %>
-                            </p>
-                        </div>
-
-                        <div class="class-action">
-
-                            <% if (card.liveSession) { %>
-                                <span class="status-badge live">
-                                    <i class="fa-solid fa-circle-dot"></i> Session Live
-                                </span>
-
-                            <% } else if (card.todaySession) { %>
-                                <span class="status-badge done">
-                                    <i class="fa-solid fa-circle-check"></i> Recorded
-                                </span>
-
-                            <% } else if (card.canStart) { %>
-                                <form
-                                    action="/teacher/attendance/start"
-                                    method="POST"
-                                    onsubmit="return getTeacherLocationAndSubmit(event, this)"
+                            <div class="teacher-search-box">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                                <input
+                                    id="teacherScheduleSearchInput"
+                                    type="text"
+                                    placeholder="Search subject, class group, room or state..."
+                                    data-teacher-schedule-search
                                 >
-                                    <input type="hidden" name="scheduleId" value="<%= item._id %>">
-                                    <input type="hidden" name="subjectId" value="<%= item.subject._id %>">
-                                    <input type="hidden" name="classGroupId" value="<%= item.classGroup._id %>">
-                                    <input type="hidden" name="classroomId" value="<%= item.classroom._id %>">
-                                    <input type="hidden" name="durationMinutes" value="5">
-                                    <input type="hidden" name="teacherLatitude" value="">
-                                    <input type="hidden" name="teacherLongitude" value="">
+                            </div>
+                        </div>
 
-                                    <button class="start-btn" type="submit">
-                                        <i class="fa-solid fa-play"></i> Start
-                                    </button>
-                                </form>
+                        <div class="teacher-schedule-filter-grid">
 
-                            <% } else if (card.timeStatus === "upcoming") { %>
-                                <span class="status-badge upcoming">
-                                    <i class="fa-regular fa-clock"></i> Upcoming
-                                </span>
+                            <div class="teacher-schedule-filter-field">
+                                <label for="teacherScheduleGroupFilter">Class Group</label>
 
-                            <% } else if (card.showManual) { %>
-                                <span class="status-badge manual">
-                                    <i class="fa-solid fa-pen"></i> Use Manual
-                                </span>
+                                <select id="teacherScheduleGroupFilter" data-teacher-schedule-filter="group">
+                                    <option value="">All Class Groups</option>
 
-                            <% } else if (card.timeStatus === "ended") { %>
-                                <span class="status-badge ended">
-                                    <i class="fa-solid fa-ban"></i> Time Over
-                                </span>
+                                    <% scheduleGroupOptions.forEach(function(option) { %>
+                                        <option value="<%= option.value %>"><%= option.label %></option>
+                                    <% }) %>
+                                </select>
+                            </div>
 
-                            <% } else { %>
-                                <span class="invalid-badge">Invalid Schedule</span>
-                            <% } %>
+                            <div class="teacher-schedule-filter-field">
+                                <label for="teacherScheduleRoomFilter">Classroom</label>
+
+                                <select id="teacherScheduleRoomFilter" data-teacher-schedule-filter="room">
+                                    <option value="">All Classrooms</option>
+
+                                    <% scheduleRoomOptions.forEach(function(option) { %>
+                                        <option value="<%= option.value %>"><%= option.label %></option>
+                                    <% }) %>
+                                </select>
+                            </div>
+
+                            <div class="teacher-schedule-filter-field">
+                                <label for="teacherScheduleStateFilter">State</label>
+
+                                <select id="teacherScheduleStateFilter" data-teacher-schedule-filter="state">
+                                    <option value="">All States</option>
+
+                                    <% scheduleStateOptions.forEach(function(option) { %>
+                                        <option value="<%= option.value %>"><%= option.label %></option>
+                                    <% }) %>
+                                </select>
+                            </div>
+
+                            <div class="teacher-schedule-filter-field teacher-schedule-filter-action">
+                                <label for="teacherScheduleClearFilters">Reset</label>
+
+                                <button
+                                    id="teacherScheduleClearFilters"
+                                    type="button"
+                                    class="teacher-secondary-btn"
+                                    data-teacher-schedule-reset
+                                >
+                                    <i class="fa-solid fa-rotate-left"></i>
+                                    Clear Filters
+                                </button>
+                            </div>
 
                         </div>
+
                     </div>
-                <% }) %>
+
+                    <div class="teacher-schedule-groups">
+                        <% scheduleDirectoryGroups.forEach(function(group, groupIndex) { %>
+                            <%
+                                const groupRooms = Object.keys(group.roomMap)
+                                    .map(function(roomKey) { return group.roomMap[roomKey]; })
+                                    .sort();
+                            %>
+
+                            <details
+                                class="teacher-schedule-group-panel"
+                                data-teacher-schedule-container
+                                data-filter-group="<%= group.id %>"
+                                <%= groupIndex === 0 ? "open" : "" %>
+                            >
+                                <summary class="teacher-schedule-group-summary">
+                                    <div class="teacher-schedule-group-summary-copy">
+                                        <h4><%= group.name %></h4>
+                                        <p><%= group.meta %></p>
+
+                                        <div class="teacher-schedule-room-list">
+                                            <% if (groupRooms.length > 0) { %>
+                                                <% groupRooms.forEach(function(roomLabel) { %>
+                                                    <span class="teacher-room-chip">
+                                                        <i class="fa-solid fa-door-open"></i>
+                                                        <%= roomLabel %>
+                                                    </span>
+                                                <% }) %>
+                                            <% } else { %>
+                                                <span class="teacher-room-chip muted">
+                                                    <i class="fa-regular fa-circle-question"></i>
+                                                    Classroom not mapped
+                                                </span>
+                                            <% } %>
+                                        </div>
+                                    </div>
+
+                                    <span class="teacher-count-pill" data-teacher-schedule-visible-count>
+                                        <%= group.cards.length %> Classes
+                                    </span>
+                                </summary>
+
+                                <div class="teacher-schedule-group-list">
+                                    <% group.cards.forEach(function(card) { %>
+                                        <%
+                                            const item = card.schedule;
+                                            const stateKey = getScheduleCardStateKey(card);
+                                            const roomToken = item && item.classroom
+                                                ? (item.classroom._id
+                                                    ? item.classroom._id.toString()
+                                                    : (item.classroom.classroomName || "missing-room"))
+                                                : "missing-room";
+                                        %>
+
+                                        <article
+                                            class="class-card teacher-schedule-class-card"
+                                            data-teacher-schedule-item
+                                            data-filter-group="<%= group.id %>"
+                                            data-filter-room="<%= roomToken %>"
+                                            data-filter-state="<%= stateKey %>"
+                                        >
+
+                                            <div class="time-box teacher-schedule-time">
+                                                <strong><%= item.startTime %></strong>
+                                                <span><%= item.endTime %></span>
+                                            </div>
+
+                                            <div class="class-info teacher-schedule-class-info">
+
+                                                <% if (item.subject) { %>
+                                                    <h4><%= item.subject.subjectName %></h4>
+                                                <% } else { %>
+                                                    <h4>Subject Missing</h4>
+                                                <% } %>
+
+                                                <p>
+                                                    <% if (item.classGroup) { %>
+                                                        <span>
+                                                            <i class="fa-solid fa-users"></i>
+                                                            <%= item.classGroup.name %>
+                                                        </span>
+                                                    <% } else { %>
+                                                        <span>Class Missing</span>
+                                                    <% } %>
+
+                                                    <% if (item.classroom) { %>
+                                                        <span>
+                                                            <i class="fa-solid fa-location-dot"></i>
+                                                            <%= item.classroom.classroomName %>
+                                                        </span>
+                                                    <% } else { %>
+                                                        <span>Room Missing</span>
+                                                    <% } %>
+                                                </p>
+
+                                            </div>
+
+                                            <div class="class-action teacher-schedule-card-action">
+
+                                                <% if (card.liveSession) { %>
+
+                                                    <span class="status-badge live">
+                                                        <span class="live-dot" aria-hidden="true"></span>
+                                                        Live Class
+                                                    </span>
+
+                                                <% } else if (card.canStart) { %>
+
+                                                    <form
+                                                        action="/teacher/attendance/start"
+                                                        method="POST"
+                                                        class="js-teacher-start-form"
+                                                        onsubmit="return getTeacherLocationAndSubmit(event, this);"
+                                                    >
+                                                        <input type="hidden" name="scheduleId" value="<%= item._id %>">
+                                                        <input type="hidden" name="subjectId" value="<%= item.subject._id %>">
+                                                        <input type="hidden" name="classGroupId" value="<%= item.classGroup._id %>">
+                                                        <input type="hidden" name="classroomId" value="<%= item.classroom._id %>">
+                                                        <input type="hidden" name="durationMinutes" value="5">
+                                                        <input type="hidden" name="teacherLatitude" value="">
+                                                        <input type="hidden" name="teacherLongitude" value="">
+                                                        <input type="hidden" name="teacherAccuracy" value="">
+
+                                                        <button class="start-btn" type="submit">
+                                                            <% if (card.canRestart) { %>
+                                                                <i class="fa-solid fa-rotate-right"></i>
+                                                                Start Again
+                                                            <% } else { %>
+                                                                <i class="fa-solid fa-play"></i>
+                                                                Start
+                                                            <% } %>
+                                                        </button>
+                                                    </form>
+
+                                                <% } else if (card.showManual) { %>
+
+                                                    <a href="/teacher/manual-attendance/<%= item._id %>" class="manual-link-btn">
+                                                        <i class="fa-solid fa-pen"></i>
+                                                        Manual
+                                                    </a>
+
+                                                <% } else if (card.todaySession) { %>
+
+                                                    <span class="status-badge done">
+                                                        <i class="fa-solid fa-circle-check"></i>
+                                                        Recorded
+                                                    </span>
+
+                                                <% } else if (card.timeStatus === "upcoming") { %>
+
+                                                    <span class="status-badge upcoming">
+                                                        <i class="fa-regular fa-clock"></i>
+                                                        Upcoming
+                                                    </span>
+
+                                                <% } else if (card.timeStatus === "ended") { %>
+
+                                                    <span class="status-badge ended">
+                                                        <i class="fa-solid fa-ban"></i>
+                                                        Time Over
+                                                    </span>
+
+                                                <% } else { %>
+
+                                                    <span class="invalid-badge">
+                                                        Invalid Schedule
+                                                    </span>
+
+                                                <% } %>
+
+                                            </div>
+
+                                        </article>
+                                    <% }) %>
+                                </div>
+                            </details>
+                        <% }) %>
+                    </div>
+
+                    <div class="empty-box hidden-by-filter" data-teacher-schedule-empty>
+                        <p>No classes match your current search and filters.</p>
+                    </div>
+                <% } %>
             </div>
 
             <div class="panel-box" id="attendance-section">
-                <h3 class="panel-title"><i class="fa-solid fa-user-check"></i> Attendance</h3>
-                <p class="panel-subtitle">Live sessions and manual marking</p>
+                <h3 class="panel-title">
+                    <i class="fa-solid fa-user-check"></i>
+                    Live Attendance
+                </h3>
 
-                <h4 class="section-label">Live Sessions</h4>
+                <p class="panel-subtitle">
+                    Active sessions and realtime present count.
+                </p>
 
                 <% if (activeSessions.length === 0) { %>
                     <div class="empty-box small">
@@ -211,7 +575,9 @@
                 <% } %>
 
                 <% activeSessions.forEach(function(session) { %>
-                    <div class="live-card">
+
+                    <div class="live-card" data-session-id="<%= session._id %>">
+
                         <div class="live-top">
                             <div>
                                 <% if (session.subject) { %>
@@ -226,84 +592,100 @@
                                     <p>Class Missing</p>
                                 <% } %>
                             </div>
+
                             <span class="live-badge">LIVE</span>
                         </div>
 
                         <div class="live-meta">
+
                             <% if (session.classroom) { %>
-                                <p><i class="fa-solid fa-location-dot"></i> <%= session.classroom.classroomName %></p>
+                                <p>
+                                    <i class="fa-solid fa-location-dot"></i>
+                                    <%= session.classroom.classroomName %>
+                                </p>
                             <% } %>
-                            <p><i class="fa-solid fa-clock"></i> Ends: <%= session.endTime.toLocaleString() %></p>
+
+                            <p>
+                                <i class="fa-solid fa-clock"></i>
+                                Ends:
+                                <%= session.endTime.toLocaleString() %>
+                            </p>
+
+                            <p>
+                                <i class="fa-solid fa-user-check"></i>
+                                Present:
+                                <span class="js-live-present-count">
+                                    <%= session.presentStudents ? session.presentStudents.length : 0 %>
+                                </span>
+                            </p>
+
                         </div>
+
+                        <ul class="live-student-list js-live-student-list">
+                            <% if (session.presentStudents && session.presentStudents.length > 0) { %>
+                                <% session.presentStudents.slice(-5).reverse().forEach(function(studentItem) { %>
+                                    <li>
+                                        <strong><%= studentItem.fullName %></strong>
+                                        <span><%= studentItem.enrollmentNumber %></span>
+                                    </li>
+                                <% }) %>
+                            <% } %>
+                        </ul>
 
                         <form action="/teacher/attendance/end/<%= session._id %>" method="POST">
                             <button class="end-btn" type="submit">
-                                <i class="fa-solid fa-stop"></i> End Session
+                                <i class="fa-solid fa-stop"></i>
+                                End Session
                             </button>
                         </form>
+
                     </div>
+
                 <% }) %>
-
-                <h4 class="section-label">Manual Attendance</h4>
-                <p class="manual-note">
-                    If class time ended and you did not start live attendance, mark students manually below.
-                </p>
-
-                <% if (manualAttendanceList.length === 0) { %>
-                    <div class="empty-box small">
-                        <p>No classes need manual attendance right now</p>
-                    </div>
-                <% } %>
-
-                <% manualAttendanceList.forEach(function(manualItem) { %>
-                    <% const item = manualItem.schedule; %>
-
-                    <div class="manual-card">
-                        <div class="manual-card-head">
-                            <div>
-                                <h4><%= item.subject.subjectName %></h4>
-                                <p>
-                                    <%= item.classGroup.name %> · <%= item.classroom.classroomName %>
-                                    · <%= item.startTime %> - <%= item.endTime %>
-                                </p>
-                            </div>
-                            <span class="status-badge manual">Missed Live</span>
-                        </div>
-
-                        <form action="/teacher/attendance/manual" method="POST" class="manual-form">
-                            <input type="hidden" name="scheduleId" value="<%= item._id %>">
-                            <input type="hidden" name="subjectId" value="<%= item.subject._id %>">
-                            <input type="hidden" name="classGroupId" value="<%= item.classGroup._id %>">
-                            <input type="hidden" name="classroomId" value="<%= item.classroom._id %>">
-
-                            <p class="manual-help">Check students who were present. Unchecked = Absent.</p>
-
-                            <div class="student-check-list">
-                                <% if (manualItem.students.length === 0) { %>
-                                    <p class="no-students">No students in this class group.</p>
-                                <% } %>
-                                <% manualItem.students.forEach(function(oneStudent) { %>
-                                    <label class="student-check">
-                                        <input type="checkbox" name="presentStudents" value="<%= oneStudent._id %>">
-                                        <span><%= oneStudent.fullName %></span>
-                                        <small><%= oneStudent.enrollmentNumber %></small>
-                                    </label>
-                                <% }) %>
-                            </div>
-
-                            <button class="manual-save-btn" type="submit">
-                                <i class="fa-solid fa-floppy-disk"></i> Save Manual Attendance
-                            </button>
-                        </form>
-                    </div>
-                <% }) %>
-
             </div>
 
         </section>
+
+        <section class="teacher-card manual-shortcut-card">
+            <div class="teacher-card-header">
+                <div>
+                    <h3>Manual Attendance</h3>
+                    <p>
+                        If class time has ended and live attendance was not completed, mark attendance manually from the dedicated page.
+                    </p>
+                </div>
+
+                <a href="/teacher/manual-attendance" class="manual-link-btn">
+                    <i class="fa-solid fa-clipboard-list"></i>
+                    Open Manual Page
+                </a>
+            </div>
+        </section>
+
+        <section class="teacher-card suspicious-attempts-card">
+            <div class="teacher-card-header">
+                <div>
+                    <h3>Suspicious Attempts</h3>
+                    <p>Realtime rejected attendance attempts for today.</p>
+                </div>
+
+                <span class="suspicious-count-pill" id="suspiciousAttemptCount">
+                    0 Alerts
+                </span>
+            </div>
+
+            <div class="suspicious-empty" id="suspiciousEmptyState">
+                <i class="fa-solid fa-shield-halved"></i>
+                <p>No suspicious attempts detected yet.</p>
+            </div>
+
+            <ul class="suspicious-attempt-list" id="suspiciousAttemptList"></ul>
+        </section>
+
     </main>
 
     <aside class="teacher-profile-panel">
+
         <div class="profile-card">
             <div class="profile-avatar">
                 <%= teacher.fullName.charAt(0).toUpperCase() %>
@@ -347,10 +729,16 @@
                 <p><%= schedules.length %> scheduled</p>
             </div>
         </div>
+
     </aside>
 
 </div>
 
-</body>
 <script src="/js/teacherLocation.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<script src="/js/teacherRealtime.js"></script>
+<script src="/js/teacherNav.js"></script>
+<script src="/js/teacherPanels.js"></script>
+<script src="/js/uiShell.js"></script>
+</body>
 </html>

@@ -61,7 +61,13 @@ const attendanceRecordSchema = new mongoose.Schema({
 
     verificationMethod: {
         type: String,
-        enum: ["GEOLOCATION", "MANUAL", "AUTO_ABSENT"],
+        enum: [
+            "GEOLOCATION",
+            "PASSKEY_GEOLOCATION",
+            "TRUSTED_DEVICE_GEOLOCATION",
+            "MANUAL",
+            "AUTO_ABSENT"
+        ],
         default: "GEOLOCATION"
     },
 
@@ -72,7 +78,17 @@ const attendanceRecordSchema = new mongoose.Schema({
 
         ip: {
             type: String
-        }
+        },
+
+        browserFingerprint: String,
+        gpsAccuracy: Number,
+        teacherGpsAccuracy: Number,
+        measuredDistanceFromClassroom: Number,
+        verifiedDistanceFromClassroom: Number,
+        allowedRadius: Number,
+        radiusUncertaintyAllowance: Number,
+        minimumPossibleDistance: Number,
+        passkeyCredentialId: String
     },
 
     markedAt: {
@@ -96,7 +112,7 @@ attendanceRecordSchema.index({
     markedAt: 1
 });
 
-const AttendanceRecord = mongoose.model(
+const AttendanceRecord = mongoose.models.AttendanceRecord || mongoose.model(
     "AttendanceRecord",
     attendanceRecordSchema
 );

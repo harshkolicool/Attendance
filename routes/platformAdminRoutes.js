@@ -2,12 +2,22 @@ const express = require("express");
 const mongoose = require("mongoose");
 const router = express.Router();
 
+const bcrypt = require("bcrypt");
+
 const PlatformAdmin = require("../models/platformAdminSchema");
 const CollegeRegistrationRequest = require("../models/collegeRegistrationRequestSchema");
 const College = require("../models/collegeSchema");
 const Teacher = require("../models/teacherSchema");
-
 const isPlatformAdmin = require("../middlewares/isPlatformAdmin");
+const {
+    getUnreadCount,
+    getRecentNotifications,
+    markAllRead,
+    markNotificationRead,
+    deleteNotification,
+    clearAllNotifications
+} = require("../utils/notificationService");
+const socketManager = require("../utils/socketManager");
 
 function cleanText(value) {
     if (!value) {
@@ -53,9 +63,9 @@ function getFlash(req) {
 
 function setFlash(req, type, title, message, extra) {
     req.session.platformFlash = {
-        type,
-        title,
-        message,
+        type: type,
+        title: title,
+        message: message,
         extra: extra || null
     };
 }
@@ -120,6 +130,16 @@ function getCollegeBaseCode(collegeName) {
     return words[0].slice(0, 5);
 }
 
+function isValidObjectId(id) {
+    return mongoose.Types.ObjectId.isValid(id);
+}
+
+function getPlatformNotificationFilter() {
+    return {
+        recipientRole: "PLATFORM_ADMIN"
+    };
+}
+
 async function generateCollegeCode(collegeName) {
     const baseCode = getCollegeBaseCode(collegeName);
 
@@ -157,9 +177,67 @@ async function generateAdminEmployeeId(collegeId, collegeCode) {
     throw new Error("Unable to generate admin employee ID");
 }
 
-function generateTemporaryPassword(collegeCode) {
+function generateApprovalTemporaryPassword(collegeCode) {
     const randomPart = Math.random().toString(36).substring(2, 6).toUpperCase();
     return collegeCode + "@Admin" + randomPart;
+}
+
+function generateResetTemporaryPassword() {
+    const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+    const lower = "abcdefghijkmnopqrstuvwxyz";
+    const numbers = "23456789";
+    const symbols = "@#$%";
+
+    const all = upper + lower + numbers + symbols;
+
+    let password = "";
+
+    password += upper[Math.floor(Math.random() * upper.length)];
+    password += lower[Math.floor(Math.random() * lower.length)];
+    password += numbers[Math.floor(Math.random() * numbers.length)];
+    password += symbols[Math.floor(Math.random() * symbols.length)];
+
+    for (let i = password.length; i < 12; i++) {
+        password += all[Math.floor(Math.random() * all.length)];
+    }
+
+    return password
+        .split("")
+        .sort(function () {
+            return 0.5 - Math.random();
+        })
+        .join("");
+}
+
+async function resetCollegeAdminPassword(req, collegeAdmin, collegeName) {
+    const temporaryPassword = generateResetTemporaryPassword();
+    const hashedPassword = await bcrypt.hash(temporaryPassword, 10);
+
+    await Teacher.updateOne(
+        {
+            _id: collegeAdmin._id,
+            role: "ADMIN"
+        },
+        {
+            $set: {
+                password: hashedPassword
+            }
+        }
+    );
+
+    req.session.resetAdminPasswordResult = {
+        collegeName: collegeName || "College",
+        adminName: collegeAdmin.fullName,
+        adminEmail: collegeAdmin.email,
+        temporaryPassword: temporaryPassword
+    };
+
+    setFlash(
+        req,
+        "success",
+        "Password Reset Successfully",
+        "A new temporary password was generated. It is shown below once."
+    );
 }
 
 router.get("/platform-admin", function (req, res) {
@@ -241,17 +319,23 @@ router.get("/platform-admin/dashboard", isPlatformAdmin, async function (req, re
         const collegesCount = await College.countDocuments();
 
         const recentRequests = await CollegeRegistrationRequest.find()
+            .populate("createdCollege")
+            .populate("createdAdmin")
             .sort({ createdAt: -1 })
             .limit(8);
+
+        const resetAdminPasswordResult = req.session.resetAdminPasswordResult || null;
+        req.session.resetAdminPasswordResult = null;
 
         res.render("platformAdmin/dashboard", {
             activePage: "dashboard",
             flash: getFlash(req),
-            pendingRequestsCount,
-            approvedRequestsCount,
-            rejectedRequestsCount,
-            collegesCount,
-            recentRequests
+            pendingRequestsCount: pendingRequestsCount,
+            approvedRequestsCount: approvedRequestsCount,
+            rejectedRequestsCount: rejectedRequestsCount,
+            collegesCount: collegesCount,
+            recentRequests: recentRequests,
+            resetAdminPasswordResult: resetAdminPasswordResult
         });
 
     } catch (err) {
@@ -260,6 +344,132 @@ router.get("/platform-admin/dashboard", isPlatformAdmin, async function (req, re
         console.log(err.stack);
 
         res.status(500).send("Dashboard error: " + err.message);
+    }
+});
+
+router.get("/platform-admin/notifications", isPlatformAdmin, async function (req, res) {
+    try {
+        const notifications = await getRecentNotifications(
+            getPlatformNotificationFilter(),
+            120
+        );
+
+        const unreadCount = await getUnreadCount(getPlatformNotificationFilter());
+
+        res.render("platformAdmin/notifications", {
+            activePage: "notifications",
+            platformAdmin: req.platformAdmin,
+            notifications: notifications,
+            unreadCount: unreadCount
+        });
+    } catch (err) {
+        console.log("PLATFORM ADMIN NOTIFICATIONS PAGE ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.status(500).send("Platform notifications error: " + err.message);
+    }
+});
+
+router.post("/platform-admin/notifications/mark-all-read", isPlatformAdmin, async function (req, res) {
+    try {
+        await markAllRead(getPlatformNotificationFilter());
+
+        const unreadCount = await getUnreadCount(getPlatformNotificationFilter());
+
+        socketManager.emitNotificationUnreadCount({
+            recipientRole: "PLATFORM_ADMIN",
+            unreadCount: unreadCount
+        });
+
+        res.redirect("/platform-admin/notifications");
+    } catch (err) {
+        console.log("PLATFORM ADMIN MARK ALL READ ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.redirect("/platform-admin/notifications");
+    }
+});
+
+router.post("/platform-admin/notifications/clear-all", isPlatformAdmin, async function (req, res) {
+    try {
+        await clearAllNotifications(getPlatformNotificationFilter());
+
+        socketManager.emitNotificationUnreadCount({
+            recipientRole: "PLATFORM_ADMIN",
+            unreadCount: 0
+        });
+
+        res.redirect("/platform-admin/notifications");
+    } catch (err) {
+        console.log("PLATFORM ADMIN CLEAR ALL NOTIFICATIONS ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.redirect("/platform-admin/notifications");
+    }
+});
+
+router.post("/platform-admin/notifications/:id/read", isPlatformAdmin, async function (req, res) {
+    try {
+        await markNotificationRead(req.params.id, getPlatformNotificationFilter());
+
+        const unreadCount = await getUnreadCount(getPlatformNotificationFilter());
+
+        socketManager.emitNotificationUnreadCount({
+            recipientRole: "PLATFORM_ADMIN",
+            unreadCount: unreadCount
+        });
+
+        res.redirect("/platform-admin/notifications");
+    } catch (err) {
+        console.log("PLATFORM ADMIN MARK NOTIFICATION READ ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.redirect("/platform-admin/notifications");
+    }
+});
+
+router.post("/platform-admin/notifications/:id/delete", isPlatformAdmin, async function (req, res) {
+    try {
+        await deleteNotification(req.params.id, getPlatformNotificationFilter());
+
+        const unreadCount = await getUnreadCount(getPlatformNotificationFilter());
+
+        socketManager.emitNotificationUnreadCount({
+            recipientRole: "PLATFORM_ADMIN",
+            unreadCount: unreadCount
+        });
+
+        res.redirect("/platform-admin/notifications");
+    } catch (err) {
+        console.log("PLATFORM ADMIN DELETE NOTIFICATION ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.redirect("/platform-admin/notifications");
+    }
+});
+
+router.get("/platform-admin/notifications/unread-count", isPlatformAdmin, async function (req, res) {
+    try {
+        const unreadCount = await getUnreadCount(getPlatformNotificationFilter());
+
+        res.json({
+            success: true,
+            unreadCount: unreadCount
+        });
+    } catch (err) {
+        console.log("PLATFORM ADMIN UNREAD NOTIFICATION COUNT ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.status(500).json({
+            success: false,
+            message: "Unable to load unread notification count."
+        });
     }
 });
 
@@ -283,7 +493,7 @@ router.get("/platform-admin/requests", isPlatformAdmin, async function (req, res
             activePage: "requests",
             selectedStatus: status || "ALL",
             flash: getFlash(req),
-            requests
+            requests: requests
         });
 
     } catch (err) {
@@ -299,7 +509,7 @@ router.post("/platform-admin/requests/:id/approve", isPlatformAdmin, async funct
     try {
         const requestId = req.params.id;
 
-        if (!mongoose.Types.ObjectId.isValid(requestId)) {
+        if (!isValidObjectId(requestId)) {
             setFlash(
                 req,
                 "error",
@@ -379,7 +589,7 @@ router.post("/platform-admin/requests/:id/approve", isPlatformAdmin, async funct
             generatedCollegeCode
         );
 
-        const temporaryPassword = generateTemporaryPassword(generatedCollegeCode);
+        const temporaryPassword = generateApprovalTemporaryPassword(generatedCollegeCode);
 
         let createdAdmin = null;
 
@@ -463,7 +673,7 @@ router.post("/platform-admin/requests/:id/reject", isPlatformAdmin, async functi
         const requestId = req.params.id;
         const rejectionReason = cleanText(req.body.rejectionReason);
 
-        if (!mongoose.Types.ObjectId.isValid(requestId)) {
+        if (!isValidObjectId(requestId)) {
             setFlash(
                 req,
                 "error",
@@ -519,6 +729,170 @@ router.post("/platform-admin/requests/:id/reject", isPlatformAdmin, async functi
         );
 
         res.redirect("/platform-admin/requests?status=PENDING");
+    }
+});
+
+router.post("/platform-admin/requests/:id/reset-admin-password", isPlatformAdmin, async function (req, res) {
+    try {
+        const requestId = req.params.id;
+
+        if (!isValidObjectId(requestId)) {
+            setFlash(
+                req,
+                "error",
+                "Invalid Request",
+                "Invalid request selected."
+            );
+
+            return res.redirect("/platform-admin/dashboard");
+        }
+
+        const registrationRequest = await CollegeRegistrationRequest.findById(requestId)
+            .populate("createdCollege")
+            .populate("createdAdmin");
+
+        if (!registrationRequest) {
+            setFlash(
+                req,
+                "error",
+                "Request Not Found",
+                "College registration request not found."
+            );
+
+            return res.redirect("/platform-admin/dashboard");
+        }
+
+        if (registrationRequest.status !== "APPROVED") {
+            setFlash(
+                req,
+                "error",
+                "Reset Not Allowed",
+                "Admin password can be reset only for approved colleges."
+            );
+
+            return res.redirect("/platform-admin/dashboard");
+        }
+
+        let collegeAdmin = null;
+
+        if (registrationRequest.createdAdmin) {
+            const createdAdminId = registrationRequest.createdAdmin._id
+                ? registrationRequest.createdAdmin._id
+                : registrationRequest.createdAdmin;
+
+            collegeAdmin = await Teacher.findOne({
+                _id: createdAdminId,
+                role: "ADMIN"
+            });
+        }
+
+        if (!collegeAdmin) {
+            collegeAdmin = await Teacher.findOne({
+                email: registrationRequest.adminEmail,
+                role: "ADMIN"
+            });
+        }
+
+        if (!collegeAdmin) {
+            setFlash(
+                req,
+                "error",
+                "Admin Not Found",
+                "College admin account was not found."
+            );
+
+            return res.redirect("/platform-admin/dashboard");
+        }
+
+        await resetCollegeAdminPassword(
+            req,
+            collegeAdmin,
+            registrationRequest.collegeName
+        );
+
+        res.redirect("/platform-admin/dashboard");
+
+    } catch (err) {
+        console.log("PLATFORM ADMIN RESET ADMIN PASSWORD BY REQUEST ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        setFlash(
+            req,
+            "error",
+            "Reset Failed",
+            "Password reset error: " + err.message
+        );
+
+        res.redirect("/platform-admin/dashboard");
+    }
+});
+
+router.post("/platform-admin/colleges/:collegeId/reset-admin-password", isPlatformAdmin, async function (req, res) {
+    try {
+        const collegeId = req.params.collegeId;
+
+        if (!isValidObjectId(collegeId)) {
+            setFlash(
+                req,
+                "error",
+                "Invalid College",
+                "Invalid college selected."
+            );
+
+            return res.redirect("/platform-admin/dashboard");
+        }
+
+        const college = await College.findById(collegeId);
+
+        if (!college) {
+            setFlash(
+                req,
+                "error",
+                "College Not Found",
+                "College was not found."
+            );
+
+            return res.redirect("/platform-admin/dashboard");
+        }
+
+        const collegeAdmin = await Teacher.findOne({
+            college: college._id,
+            role: "ADMIN"
+        });
+
+        if (!collegeAdmin) {
+            setFlash(
+                req,
+                "error",
+                "Admin Not Found",
+                "College admin account was not found."
+            );
+
+            return res.redirect("/platform-admin/dashboard");
+        }
+
+        await resetCollegeAdminPassword(
+            req,
+            collegeAdmin,
+            college.collegeName
+        );
+
+        res.redirect("/platform-admin/dashboard");
+
+    } catch (err) {
+        console.log("PLATFORM ADMIN RESET ADMIN PASSWORD BY COLLEGE ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        setFlash(
+            req,
+            "error",
+            "Reset Failed",
+            "Password reset error: " + err.message
+        );
+
+        res.redirect("/platform-admin/dashboard");
     }
 });
 

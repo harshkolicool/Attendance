@@ -12,7 +12,19 @@ const Student = require("../models/studentSchema");
 const Schedule = require("../models/scheduleSchema");
 const AttendanceSession = require("../models/attendanceSessionSchema");
 const AttendanceRecord = require("../models/attendanceRecordSchema");
-
+const AttendanceAttempt = require("../models/attendanceAttemptSchema");
+const PasskeySetupRequest = require("../models/passkeySetupRequestSchema");
+const bcrypt = require("bcrypt");
+const socketManager = require("../utils/socketManager");
+const {
+    createNotification,
+    getUnreadCount,
+    getRecentNotifications,
+    markAllRead,
+    markNotificationRead,
+    deleteNotification,
+    clearAllNotifications
+} = require("../utils/notificationService");
 
 const {
     timeToMinutes,
@@ -28,6 +40,64 @@ function getCollegeId(req) {
 
     return req.collegeId;
 }
+
+function getAdminNotificationFilter(collegeId) {
+    return {
+        recipientRole: "ADMIN",
+        college: collegeId
+    };
+}
+
+function shouldBroadcastAdminRealtimeRefresh(redirectUrl) {
+    if (!redirectUrl || typeof redirectUrl !== "string") {
+        return false;
+    }
+
+    if (redirectUrl.indexOf("message=") === -1) {
+        return false;
+    }
+
+    const successMarkers = [
+        "message=created",
+        "message=updated",
+        "message=deleted",
+        "message=bulk_deleted",
+        "message=student_archived",
+        "message=teacher_archived",
+        "message=classroom_archived",
+        "message=class_group_archived",
+        "message=passkeys_reset",
+        "message=passkey_setup_allowed",
+        "message=passkey_request_approved",
+        "message=passkey_request_rejected",
+        "message=notifications_read"
+    ];
+
+    return successMarkers.some(function (marker) {
+        return redirectUrl.includes(marker);
+    });
+}
+
+router.use(function (req, res, next) {
+    const originalRedirect = res.redirect.bind(res);
+
+    res.redirect = function (url) {
+        if (
+            req.method === "POST" &&
+            req.collegeId &&
+            shouldBroadcastAdminRealtimeRefresh(url)
+        ) {
+            socketManager.emitScheduleChanged({
+                reason: "admin-data-updated",
+                collegeId: req.collegeId
+            });
+        }
+
+        return originalRedirect(url);
+    };
+
+    next();
+});
 
 function cleanText(value) {
     if (!value) {
@@ -64,7 +134,7 @@ function isValidSemester(value) {
 
 function isValidRadius(value) {
     const radius = Number(value);
-    return !Number.isNaN(radius) && radius >= 10 && radius <= 10000;
+    return !Number.isNaN(radius) && radius >= 1 && radius <= 10000;
 }
 
 function isValidLatitude(value) {
@@ -75,6 +145,38 @@ function isValidLatitude(value) {
 function isValidLongitude(value) {
     const longitude = Number(value);
     return !Number.isNaN(longitude) && longitude >= -180 && longitude <= 180;
+}
+
+async function notifyTeacher(teacherId, collegeId, title, message, category, link, metadata) {
+    if (!teacherId) {
+        return;
+    }
+
+    const notification = await createNotification({
+        college: collegeId,
+        recipientRole: "TEACHER",
+        recipientUserId: teacherId,
+        title: title,
+        message: message,
+        category: category || "GENERAL",
+        level: "info",
+        link: link || "/teacher/dashboard",
+        metadata: metadata || {},
+        createdByType: "teacher"
+    });
+
+    socketManager.emitNotification(notification);
+
+    const unreadCount = await getUnreadCount({
+        recipientRole: "TEACHER",
+        recipientUserId: teacherId
+    });
+
+    socketManager.emitNotificationUnreadCount({
+        recipientRole: "TEACHER",
+        recipientUserId: teacherId,
+        unreadCount: unreadCount
+    });
 }
 
 function getFlashMessage(code) {
@@ -98,16 +200,40 @@ function getFlashMessage(code) {
     if (code === "invalid_class_group") return "Selected class group does not belong to your college.";
     if (code === "invalid_classroom") return "Selected classroom does not belong to your college.";
     if (code === "invalid_subject") return "Selected subject does not belong to this class group.";
-    if (code === "invalid_teacher") return "Selected teacher does not belong to your college.";
+    if (code === "invalid_teacher") return "Selected teacher was not found or is no longer active.";
     if (code === "teacher_not_assigned") return "Selected teacher is not assigned to this subject.";
 
     if (code === "teacher_clash") return "This teacher already has another class at this time.";
     if (code === "class_clash") return "This class group already has another class at this time.";
     if (code === "room_clash") return "This classroom is already booked at this time.";
 
-    if (code === "in_use") return "This record is already used somewhere, so it cannot be deleted.";
+    if (code === "active_schedule_session") return "This schedule has an active attendance session right now. End attendance before changing or deleting it.";
+    if (code === "active_class_group_session") return "This class group has an active attendance session right now. End attendance before deleting.";
+    if (code === "schedule_locked_fields") return "Attendance already exists for this schedule. You can edit day/time, but you cannot change class, subject, teacher, or classroom.";
+    if (code === "class_group_archived") return "Class group deleted successfully. Existing attendance history remains intact.";
+    
+    if (code === "teacher_archived") return "Teacher deleted successfully. Existing attendance history remains intact.";
+    if (code === "classroom_archived") return "Classroom deleted successfully. Existing attendance history remains intact.";
+    if (code === "student_archived") return "Student deleted successfully. Existing attendance history remains intact.";
+    if (code === "bulk_deleted") return "Bulk delete completed successfully.";
+    if (code === "nothing_to_delete") return "No records found to delete.";
+    if (code === "active_teacher_session") return "This teacher has an active attendance session. End the session before deleting.";
+    if (code === "active_classroom_session") return "This classroom has an active attendance session. End the session before deleting.";
+    if (code === "passkey_setup_allowed") return "Passkey setup allowed for this student for 30 minutes.";
+    if (code === "passkey_request_approved") return "Passkey request approved and student notified.";
+    if (code === "passkey_request_rejected") return "Passkey request rejected and student notified.";
+    if (code === "passkey_request_missing") return "Passkey request not found or already handled.";
+    if (code === "notifications_read") return "All notifications marked as read.";
+    if (code === "notifications_cleared") return "All notifications deleted.";
+    if (code === "notification_deleted") return "Notification deleted.";
+
+    if (code === "in_use") return "This record is linked with existing data, so this action cannot be completed.";
     if (code === "delete_blocked") return "This record cannot be deleted safely.";
     if (code === "error") return "Something went wrong. Please try again.";
+
+    if (code === "passkeys_reset") {
+        return "Student passkeys reset successfully.";
+    }
 
     if (code === "updated") {
         return "Schedule updated successfully.";
@@ -139,6 +265,10 @@ function getFlashMessage(code) {
 
     if (code === "classroom_conflict") {
         return "This classroom is already booked at this time.";
+    }
+
+    if (code === "trusted_device_setup_allowed") {
+        return "Trusted browser fallback allowed for this student for 30 minutes.";
     }
 
     return null;
@@ -197,6 +327,20 @@ function csvEscape(value) {
     }
 
     return text;
+}
+
+function sendCsvResponse(res, filename, rows) {
+    const csvContent = rows.map(function (row) {
+        return row.map(csvEscape).join(",");
+    }).join("\n");
+
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader(
+        "Content-Disposition",
+        "attachment; filename=" + filename
+    );
+
+    res.send(csvContent);
 }
 
 function parseCsvLine(line) {
@@ -300,6 +444,1357 @@ function getStudentImportResult(req) {
     return result;
 }
 
+function getDateInputValue(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+
+    return year + "-" + month + "-" + day;
+}
+
+function getStartOfDate(dateString) {
+    const date = dateString ? new Date(dateString + "T00:00:00") : new Date();
+    date.setHours(0, 0, 0, 0);
+    return date;
+}
+
+function getEndOfDate(dateString) {
+    const date = dateString ? new Date(dateString + "T23:59:59.999") : new Date();
+    date.setHours(23, 59, 59, 999);
+    return date;
+}
+
+function getPercent(part, total) {
+    if (!total || total <= 0) {
+        return 0;
+    }
+
+    return Math.round((part / total) * 100);
+}
+
+function safeQueryObjectId(value) {
+    if (!value || value === "all") {
+        return null;
+    }
+
+    if (!isValidObjectId(value)) {
+        return null;
+    }
+
+    return value;
+}
+
+function isStrongPassword(password) {
+    if (!password || typeof password !== "string") {
+        return false;
+    }
+
+    return password.length >= 6;
+}
+
+function activeTeacherQuery(extraFilter) {
+    return Object.assign(
+        {
+            role: { $in: ["TEACHER", "HOD"] },
+            isBlocked: { $ne: true },
+            isDeleted: { $ne: true }
+        },
+        extraFilter || {}
+    );
+}
+
+function teacherAccountQuery(extraFilter) {
+    return Object.assign(
+        {
+            role: { $in: ["TEACHER", "HOD"] },
+            isDeleted: { $ne: true }
+        },
+        extraFilter || {}
+    );
+}
+
+function studentAccountQuery(extraFilter) {
+    return Object.assign(
+        {
+            isDeleted: { $ne: true }
+        },
+        extraFilter || {}
+    );
+}
+
+async function forceCloseActiveAttendanceSessions(collegeId, extraFilter) {
+    const activeSessionFilter = Object.assign(
+        {
+            college: collegeId,
+            isActive: true,
+            status: "ACTIVE"
+        },
+        extraFilter || {}
+    );
+
+    const activeSessions = await AttendanceSession.find(activeSessionFilter).select("_id");
+
+    if (!activeSessions || activeSessions.length === 0) {
+        return 0;
+    }
+
+    const sessionIds = activeSessions.map(function (session) {
+        return session._id;
+    });
+
+    const now = new Date();
+
+    await AttendanceSession.updateMany(
+        {
+            _id: { $in: sessionIds },
+            college: collegeId,
+            isActive: true,
+            status: "ACTIVE"
+        },
+        {
+            $set: {
+                isActive: false,
+                status: "CANCELLED",
+                endTime: now,
+                closedAt: now
+            }
+        }
+    );
+
+    return sessionIds.length;
+}
+
+async function deleteTeacherRecord(collegeId, teacherId) {
+    const teacher = await Teacher.findOne(teacherAccountQuery({
+        _id: teacherId,
+        college: collegeId
+    }));
+
+    if (!teacher) {
+        const archivedTeacher = await Teacher.findOne({
+            _id: teacherId,
+            college: collegeId,
+            role: { $in: ["TEACHER", "HOD"] },
+            isDeleted: true
+        });
+
+        if (archivedTeacher) {
+            return { code: "teacher_archived" };
+        }
+
+        return { code: "invalid_teacher" };
+    }
+
+    await forceCloseActiveAttendanceSessions(collegeId, {
+        teacher: teacherId
+    });
+
+    const linkedSchedules = await Schedule.find({
+        college: collegeId,
+        teacher: teacherId
+    }).select("_id");
+
+    const linkedScheduleIds = linkedSchedules.map(function (schedule) {
+        return schedule._id;
+    });
+
+    if (linkedScheduleIds.length > 0) {
+        await AttendanceSession.updateMany(
+            {
+                college: collegeId,
+                schedule: { $in: linkedScheduleIds }
+            },
+            {
+                $unset: { schedule: "" }
+            }
+        );
+
+        await AttendanceAttempt.updateMany(
+            {
+                college: collegeId,
+                schedule: { $in: linkedScheduleIds }
+            },
+            {
+                $unset: { schedule: "" }
+            }
+        );
+
+        await Schedule.deleteMany({
+            college: collegeId,
+            _id: { $in: linkedScheduleIds }
+        });
+    }
+
+    await Subject.updateMany(
+        {
+            college: collegeId
+        },
+        {
+            $pull: { teachers: teacher._id }
+        }
+    );
+
+    const hasAttendanceHistory =
+        Boolean(await AttendanceSession.exists({
+            college: collegeId,
+            teacher: teacherId
+        })) ||
+        Boolean(await AttendanceAttempt.exists({
+            college: collegeId,
+            teacher: teacherId
+        }));
+
+    if (hasAttendanceHistory) {
+        await Teacher.updateOne(
+            {
+                _id: teacherId,
+                college: collegeId,
+                role: { $in: ["TEACHER", "HOD"] }
+            },
+            {
+                $set: {
+                    isDeleted: true,
+                    isBlocked: true,
+                    deletedAt: new Date(),
+                    subjects: [],
+                    attendanceSessions: []
+                }
+            }
+        );
+
+        socketManager.emitScheduleChanged({
+            reason: "teacher-archived",
+            collegeId: collegeId,
+            teacherId: teacherId
+        });
+
+        return { code: "teacher_archived" };
+    }
+
+    await Teacher.deleteOne({
+        _id: teacherId,
+        college: collegeId,
+        role: { $in: ["TEACHER", "HOD"] }
+    });
+
+    socketManager.emitScheduleChanged({
+        reason: "teacher-deleted",
+        collegeId: collegeId,
+        teacherId: teacherId
+    });
+
+    return { code: "deleted" };
+}
+
+async function deleteClassroomRecord(collegeId, classroomId) {
+    const classroom = await Classroom.findOne({
+        _id: classroomId,
+        college: collegeId,
+        isDeleted: { $ne: true }
+    });
+
+    if (!classroom) {
+        return { code: "invalid_classroom" };
+    }
+
+    await forceCloseActiveAttendanceSessions(collegeId, {
+        classroom: classroomId
+    });
+
+    const linkedSchedules = await Schedule.find({
+        college: collegeId,
+        classroom: classroomId
+    }).select("_id");
+
+    const linkedScheduleIds = linkedSchedules.map(function (schedule) {
+        return schedule._id;
+    });
+
+    if (linkedScheduleIds.length > 0) {
+        await AttendanceSession.updateMany(
+            {
+                college: collegeId,
+                schedule: { $in: linkedScheduleIds }
+            },
+            {
+                $unset: { schedule: "" }
+            }
+        );
+
+        await AttendanceAttempt.updateMany(
+            {
+                college: collegeId,
+                schedule: { $in: linkedScheduleIds }
+            },
+            {
+                $unset: { schedule: "" }
+            }
+        );
+
+        await Schedule.deleteMany({
+            college: collegeId,
+            _id: { $in: linkedScheduleIds }
+        });
+    }
+
+    const hasAttendanceHistory =
+        Boolean(await AttendanceSession.exists({
+            college: collegeId,
+            classroom: classroomId
+        })) ||
+        Boolean(await AttendanceRecord.exists({
+            college: collegeId,
+            classroom: classroomId
+        })) ||
+        Boolean(await AttendanceAttempt.exists({
+            college: collegeId,
+            classroom: classroomId
+        }));
+
+    if (hasAttendanceHistory) {
+        await Classroom.updateOne(
+            {
+                _id: classroomId,
+                college: collegeId
+            },
+            {
+                $set: {
+                    isDeleted: true,
+                    deletedAt: new Date(),
+                    students: [],
+                    attendanceSessions: []
+                }
+            }
+        );
+
+        socketManager.emitScheduleChanged({
+            reason: "classroom-archived",
+            collegeId: collegeId,
+            classroomId: classroomId
+        });
+
+        return { code: "classroom_archived" };
+    }
+
+    await Classroom.deleteOne({
+        _id: classroomId,
+        college: collegeId
+    });
+
+    socketManager.emitScheduleChanged({
+        reason: "classroom-deleted",
+        collegeId: collegeId,
+        classroomId: classroomId
+    });
+
+    return { code: "deleted" };
+}
+
+async function deleteClassGroupRecord(collegeId, classGroupId) {
+    const classGroup = await ClassGroup.findOne({
+        _id: classGroupId,
+        college: collegeId
+    });
+
+    if (!classGroup) {
+        return { code: "invalid_class_group" };
+    }
+
+    const hasStudents = await Student.exists(studentAccountQuery({
+        college: collegeId,
+        classGroup: classGroupId
+    }));
+
+    await forceCloseActiveAttendanceSessions(collegeId, {
+        classGroup: classGroupId
+    });
+
+    const hasAttendanceHistory =
+        Boolean(await AttendanceSession.exists({
+            college: collegeId,
+            classGroup: classGroupId
+        })) ||
+        Boolean(await AttendanceRecord.exists({
+            college: collegeId,
+            classGroup: classGroupId
+        })) ||
+        Boolean(await AttendanceAttempt.exists({
+            college: collegeId,
+            classGroup: classGroupId
+        }));
+
+    const linkedSchedules = await Schedule.find({
+        college: collegeId,
+        classGroup: classGroupId
+    }).select("_id");
+
+    const linkedScheduleIds = linkedSchedules.map(function (schedule) {
+        return schedule._id;
+    });
+
+    if (linkedScheduleIds.length > 0) {
+        await AttendanceSession.updateMany(
+            {
+                college: collegeId,
+                schedule: { $in: linkedScheduleIds }
+            },
+            {
+                $unset: { schedule: "" }
+            }
+        );
+
+        await AttendanceAttempt.updateMany(
+            {
+                college: collegeId,
+                schedule: { $in: linkedScheduleIds }
+            },
+            {
+                $unset: { schedule: "" }
+            }
+        );
+
+        await Schedule.deleteMany({
+            college: collegeId,
+            _id: { $in: linkedScheduleIds }
+        });
+    }
+
+    if (hasStudents || hasAttendanceHistory) {
+        await Subject.updateMany(
+            {
+                college: collegeId,
+                classGroup: classGroupId
+            },
+            {
+                $set: { isActive: false }
+            }
+        );
+
+        await ClassGroup.updateOne(
+            {
+                _id: classGroupId,
+                college: collegeId
+            },
+            {
+                $set: { isActive: false }
+            }
+        );
+
+        socketManager.emitScheduleChanged({
+            reason: "class-group-archived",
+            collegeId: collegeId,
+            classGroupId: classGroupId
+        });
+
+        return { code: "class_group_archived" };
+    }
+
+    const linkedSubjects = await Subject.find({
+        college: collegeId,
+        classGroup: classGroupId
+    }).select("_id");
+
+    const linkedSubjectIds = linkedSubjects.map(function (subject) {
+        return subject._id;
+    });
+
+    if (linkedSubjectIds.length > 0) {
+        await Teacher.updateMany(
+            {
+                college: collegeId
+            },
+            {
+                $pull: { subjects: { $in: linkedSubjectIds } }
+            }
+        );
+
+        await Student.updateMany(
+            {
+                college: collegeId
+            },
+            {
+                $pull: { subjects: { $in: linkedSubjectIds } }
+            }
+        );
+
+        await Subject.deleteMany({
+            college: collegeId,
+            _id: { $in: linkedSubjectIds }
+        });
+    }
+
+    await ClassGroup.deleteOne({
+        _id: classGroupId,
+        college: collegeId
+    });
+
+    socketManager.emitScheduleChanged({
+        reason: "class-group-deleted",
+        collegeId: collegeId,
+        classGroupId: classGroupId
+    });
+
+    return { code: "deleted" };
+}
+
+async function deleteStudentRecord(collegeId, studentId) {
+    const student = await Student.findOne(studentAccountQuery({
+        _id: studentId,
+        college: collegeId
+    }));
+
+    if (!student) {
+        const archivedStudent = await Student.findOne({
+            _id: studentId,
+            college: collegeId,
+            isDeleted: true
+        });
+
+        if (archivedStudent) {
+            return { code: "student_archived" };
+        }
+
+        return { code: "invalid_id" };
+    }
+
+    await ClassGroup.updateOne(
+        {
+            _id: student.classGroup,
+            college: collegeId
+        },
+        {
+            $pull: { students: student._id }
+        }
+    );
+
+    await Subject.updateMany(
+        {
+            college: collegeId
+        },
+        {
+            $pull: { students: student._id }
+        }
+    );
+
+    await PasskeySetupRequest.deleteMany({
+        college: collegeId,
+        student: student._id
+    });
+
+    const hasAttendanceHistory =
+        Boolean(await AttendanceRecord.exists({
+            college: collegeId,
+            student: studentId
+        })) ||
+        Boolean(await AttendanceAttempt.exists({
+            college: collegeId,
+            student: studentId
+        })) ||
+        Boolean(await AttendanceSession.exists({
+            college: collegeId,
+            $or: [
+                { "presentStudents.student": studentId },
+                { "absentStudents.student": studentId }
+            ]
+        }));
+
+    if (hasAttendanceHistory) {
+        await Student.updateOne(
+            {
+                _id: studentId,
+                college: collegeId
+            },
+            {
+                $set: {
+                    isDeleted: true,
+                    isBlocked: true,
+                    deletedAt: new Date(),
+                    subjects: [],
+                    passkeys: [],
+                    trustedDevices: []
+                },
+                $unset: {
+                    passkeySetupAllowedAt: "",
+                    passkeySetupAllowedUntil: "",
+                    trustedDeviceSetupAllowedAt: "",
+                    trustedDeviceSetupAllowedUntil: "",
+                    trustedDeviceSetupAllowedBy: ""
+                }
+            }
+        );
+
+        socketManager.emitScheduleChanged({
+            reason: "student-archived",
+            collegeId: collegeId,
+            classGroupId: student.classGroup
+        });
+
+        return { code: "student_archived" };
+    }
+
+    await Student.deleteOne({
+        _id: studentId,
+        college: collegeId
+    });
+
+    socketManager.emitScheduleChanged({
+        reason: "student-deleted",
+        collegeId: collegeId,
+        classGroupId: student.classGroup
+    });
+
+    return { code: "deleted" };
+}
+
+router.get("/reports", isCollegeAdmin, async function (req, res) {
+    try {
+        const collegeId = getCollegeId(req);
+
+        const todayInput = getDateInputValue(new Date());
+
+        const filters = {
+            fromDate: req.query.fromDate || todayInput,
+            toDate: req.query.toDate || todayInput,
+            classGroupId: req.query.classGroupId || "all",
+            subjectId: req.query.subjectId || "all",
+            teacherId: req.query.teacherId || "all",
+            studentId: req.query.studentId || "all",
+            status: req.query.status || "all"
+        };
+
+        const fromDate = getStartOfDate(filters.fromDate);
+        const toDate = getEndOfDate(filters.toDate);
+
+        const classGroupId = safeQueryObjectId(filters.classGroupId);
+        const subjectId = safeQueryObjectId(filters.subjectId);
+        const teacherId = safeQueryObjectId(filters.teacherId);
+        const studentId = safeQueryObjectId(filters.studentId);
+
+        const classGroups = await ClassGroup.find({
+            college: collegeId,
+            isActive: true
+        }).sort({
+            department: 1,
+            semester: 1,
+            section: 1
+        });
+
+        const subjects = await Subject.find({
+            college: collegeId,
+            isActive: true
+        })
+            .populate("classGroup")
+            .sort({
+                subjectName: 1
+            });
+
+        const teachers = await Teacher.find(teacherAccountQuery({
+            college: collegeId
+        })).sort({
+            fullName: 1
+        });
+
+        const students = await Student.find(studentAccountQuery({
+            college: collegeId
+        }))
+            .populate("classGroup")
+            .sort({
+                fullName: 1
+            });
+
+        const sessionQuery = {
+            college: collegeId,
+            startTime: {
+                $gte: fromDate,
+                $lte: toDate
+            }
+        };
+
+        if (classGroupId) {
+            sessionQuery.classGroup = classGroupId;
+        }
+
+        if (subjectId) {
+            sessionQuery.subject = subjectId;
+        }
+
+        if (teacherId) {
+            sessionQuery.teacher = teacherId;
+        }
+
+        const sessions = await AttendanceSession.find(sessionQuery)
+            .populate("schedule")
+            .populate("subject")
+            .populate("teacher")
+            .populate("classGroup")
+            .populate("classroom")
+            .sort({
+                startTime: -1
+            });
+
+        const sessionIds = sessions.map(function (session) {
+            return session._id;
+        });
+
+        const recordQuery = {
+            college: collegeId,
+            attendanceSession: {
+                $in: sessionIds
+            }
+        };
+
+        if (studentId) {
+            recordQuery.student = studentId;
+        }
+
+        if (filters.status !== "all") {
+            recordQuery.status = filters.status;
+        }
+
+        const attendanceRecords = await AttendanceRecord.find(recordQuery)
+            .populate("student")
+            .populate("subject")
+            .populate("classGroup")
+            .populate("classroom")
+            .populate({
+                path: "attendanceSession",
+                populate: [
+                    { path: "teacher" },
+                    { path: "schedule" },
+                    { path: "subject" },
+                    { path: "classGroup" },
+                    { path: "classroom" }
+                ]
+            })
+            .sort({
+                createdAt: -1
+            })
+            .limit(1000);
+
+        let totalRecords = attendanceRecords.length;
+        let totalPresent = 0;
+        let totalAbsent = 0;
+
+        const subjectSummaryMap = {};
+        const classSummaryMap = {};
+        const studentSummaryMap = {};
+
+        attendanceRecords.forEach(function (record) {
+            const status = record.status;
+
+            if (status === "PRESENT") {
+                totalPresent++;
+            }
+
+            if (status === "ABSENT") {
+                totalAbsent++;
+            }
+
+            const subjectKey = record.subject
+                ? record.subject._id.toString()
+                : "missing-subject";
+
+            const subjectName = record.subject
+                ? record.subject.subjectName
+                : "Subject Missing";
+
+            if (!subjectSummaryMap[subjectKey]) {
+                subjectSummaryMap[subjectKey] = {
+                    name: subjectName,
+                    code: record.subject && record.subject.subjectCode ? record.subject.subjectCode : "",
+                    total: 0,
+                    present: 0,
+                    absent: 0
+                };
+            }
+
+            subjectSummaryMap[subjectKey].total++;
+
+            if (status === "PRESENT") {
+                subjectSummaryMap[subjectKey].present++;
+            }
+
+            if (status === "ABSENT") {
+                subjectSummaryMap[subjectKey].absent++;
+            }
+
+            const classKey = record.classGroup
+                ? record.classGroup._id.toString()
+                : "missing-class";
+
+            const className = record.classGroup
+                ? record.classGroup.name
+                : "Class Missing";
+
+            if (!classSummaryMap[classKey]) {
+                classSummaryMap[classKey] = {
+                    name: className,
+                    total: 0,
+                    present: 0,
+                    absent: 0
+                };
+            }
+
+            classSummaryMap[classKey].total++;
+
+            if (status === "PRESENT") {
+                classSummaryMap[classKey].present++;
+            }
+
+            if (status === "ABSENT") {
+                classSummaryMap[classKey].absent++;
+            }
+
+            const studentKey = record.student
+                ? record.student._id.toString()
+                : "missing-student";
+
+            const studentName = record.student
+                ? record.student.fullName
+                : "Student Missing";
+
+            const enrollmentNumber = record.student && record.student.enrollmentNumber
+                ? record.student.enrollmentNumber
+                : "";
+
+            if (!studentSummaryMap[studentKey]) {
+                studentSummaryMap[studentKey] = {
+                    name: studentName,
+                    enrollmentNumber: enrollmentNumber,
+                    total: 0,
+                    present: 0,
+                    absent: 0
+                };
+            }
+
+            studentSummaryMap[studentKey].total++;
+
+            if (status === "PRESENT") {
+                studentSummaryMap[studentKey].present++;
+            }
+
+            if (status === "ABSENT") {
+                studentSummaryMap[studentKey].absent++;
+            }
+        });
+
+        const subjectSummary = Object.values(subjectSummaryMap).map(function (item) {
+            item.percentage = getPercent(item.present, item.total);
+            return item;
+        });
+
+        const classSummary = Object.values(classSummaryMap).map(function (item) {
+            item.percentage = getPercent(item.present, item.total);
+            return item;
+        });
+
+        const studentSummary = Object.values(studentSummaryMap).map(function (item) {
+            item.percentage = getPercent(item.present, item.total);
+            return item;
+        }).slice(0, 10);
+
+        const attemptQuery = {
+            college: collegeId,
+            result: {
+                $ne: "SUCCESS"
+            },
+            createdAt: {
+                $gte: fromDate,
+                $lte: toDate
+            }
+        };
+
+        if (classGroupId) {
+            attemptQuery.classGroup = classGroupId;
+        }
+
+        if (subjectId) {
+            attemptQuery.subject = subjectId;
+        }
+
+        if (teacherId) {
+            attemptQuery.teacher = teacherId;
+        }
+
+        if (studentId) {
+            attemptQuery.student = studentId;
+        }
+
+        const suspiciousAttempts = await AttendanceAttempt.find(attemptQuery)
+            .sort({
+                createdAt: -1
+            })
+            .limit(50);
+
+        const summary = {
+            totalSessions: sessions.length,
+            totalRecords: totalRecords,
+            totalPresent: totalPresent,
+            totalAbsent: totalAbsent,
+            attendancePercentage: getPercent(totalPresent, totalRecords),
+            suspiciousCount: suspiciousAttempts.length
+        };
+
+        res.render("admin/reports", {
+            admin: req.user,
+            activePage: "reports",
+            filters: filters,
+            classGroups: classGroups,
+            subjects: subjects,
+            teachers: teachers,
+            students: students,
+            sessions: sessions,
+            attendanceRecords: attendanceRecords,
+            suspiciousAttempts: suspiciousAttempts,
+            subjectSummary: subjectSummary,
+            classSummary: classSummary,
+            studentSummary: studentSummary,
+            summary: summary,
+            message: null
+        });
+
+    } catch (err) {
+        console.log("ADMIN REPORTS PAGE ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.status(500).send("Admin reports page error: " + err.message);
+    }
+});
+
+router.get("/reports/export-attendance", isCollegeAdmin, async function (req, res) {
+    try {
+        const collegeId = getCollegeId(req);
+
+        const todayInput = getDateInputValue(new Date());
+
+        const filters = {
+            fromDate: req.query.fromDate || todayInput,
+            toDate: req.query.toDate || todayInput,
+            classGroupId: req.query.classGroupId || "all",
+            subjectId: req.query.subjectId || "all",
+            teacherId: req.query.teacherId || "all",
+            studentId: req.query.studentId || "all",
+            status: req.query.status || "all"
+        };
+
+        const fromDate = getStartOfDate(filters.fromDate);
+        const toDate = getEndOfDate(filters.toDate);
+
+        const classGroupId = safeQueryObjectId(filters.classGroupId);
+        const subjectId = safeQueryObjectId(filters.subjectId);
+        const teacherId = safeQueryObjectId(filters.teacherId);
+        const studentId = safeQueryObjectId(filters.studentId);
+
+        const sessionQuery = {
+            college: collegeId,
+            startTime: {
+                $gte: fromDate,
+                $lte: toDate
+            }
+        };
+
+        if (classGroupId) {
+            sessionQuery.classGroup = classGroupId;
+        }
+
+        if (subjectId) {
+            sessionQuery.subject = subjectId;
+        }
+
+        if (teacherId) {
+            sessionQuery.teacher = teacherId;
+        }
+
+        const sessions = await AttendanceSession.find(sessionQuery).select("_id");
+
+        const sessionIds = sessions.map(function (session) {
+            return session._id;
+        });
+
+        const recordQuery = {
+            college: collegeId,
+            attendanceSession: {
+                $in: sessionIds
+            }
+        };
+
+        if (studentId) {
+            recordQuery.student = studentId;
+        }
+
+        if (filters.status !== "all") {
+            recordQuery.status = filters.status;
+        }
+
+        const attendanceRecords = await AttendanceRecord.find(recordQuery)
+            .populate("student")
+            .populate("subject")
+            .populate("classGroup")
+            .populate("classroom")
+            .populate({
+                path: "attendanceSession",
+                populate: [
+                    { path: "teacher" },
+                    { path: "schedule" },
+                    { path: "subject" },
+                    { path: "classGroup" },
+                    { path: "classroom" }
+                ]
+            })
+            .sort({
+                createdAt: -1
+            });
+
+        const rows = [];
+
+        rows.push([
+            "Date",
+            "Time",
+            "Student Name",
+            "Enrollment Number",
+            "Student Email",
+            "Class Group",
+            "Subject",
+            "Subject Code",
+            "Teacher",
+            "Classroom",
+            "Status",
+            "Verification Method",
+            "Distance From Teacher/Classroom (m)",
+            "GPS Accuracy (m)",
+            "Marked At"
+        ]);
+
+        attendanceRecords.forEach(function (record) {
+            const session = record.attendanceSession;
+            const sessionDate = session && session.startTime ? session.startTime : record.createdAt;
+            const teacher = session && session.teacher ? session.teacher : null;
+
+            rows.push([
+                sessionDate ? new Date(sessionDate).toLocaleDateString() : "",
+                sessionDate ? new Date(sessionDate).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit"
+                }) : "",
+
+                record.student ? record.student.fullName : "Student Missing",
+                record.student && record.student.enrollmentNumber ? record.student.enrollmentNumber : "",
+                record.student && record.student.email ? record.student.email : "",
+
+                record.classGroup ? record.classGroup.name : "",
+                record.subject ? record.subject.subjectName : "",
+                record.subject && record.subject.subjectCode ? record.subject.subjectCode : "",
+
+                teacher ? teacher.fullName : "",
+
+                record.classroom ? record.classroom.classroomName : "",
+
+                record.status || "",
+                record.verificationMethod || "",
+
+                record.distanceFromClassroom !== undefined && record.distanceFromClassroom !== null
+                    ? Math.round(record.distanceFromClassroom)
+                    : "",
+
+                record.deviceInfo && record.deviceInfo.gpsAccuracy
+                    ? Math.round(record.deviceInfo.gpsAccuracy)
+                    : "",
+
+                record.createdAt ? new Date(record.createdAt).toLocaleString() : ""
+            ]);
+        });
+
+        const filename =
+            "attendance-report-" +
+            filters.fromDate +
+            "-to-" +
+            filters.toDate +
+            ".csv";
+
+        sendCsvResponse(res, filename, rows);
+
+    } catch (err) {
+        console.log("ADMIN EXPORT ATTENDANCE REPORT ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.redirect("/admin/reports");
+    }
+});
+
+router.get("/reports/export-suspicious", isCollegeAdmin, async function (req, res) {
+    try {
+        const collegeId = getCollegeId(req);
+
+        const todayInput = getDateInputValue(new Date());
+
+        const filters = {
+            fromDate: req.query.fromDate || todayInput,
+            toDate: req.query.toDate || todayInput,
+            classGroupId: req.query.classGroupId || "all",
+            subjectId: req.query.subjectId || "all",
+            teacherId: req.query.teacherId || "all",
+            studentId: req.query.studentId || "all"
+        };
+
+        const fromDate = getStartOfDate(filters.fromDate);
+        const toDate = getEndOfDate(filters.toDate);
+
+        const classGroupId = safeQueryObjectId(filters.classGroupId);
+        const subjectId = safeQueryObjectId(filters.subjectId);
+        const teacherId = safeQueryObjectId(filters.teacherId);
+        const studentId = safeQueryObjectId(filters.studentId);
+
+        const attemptQuery = {
+            college: collegeId,
+            result: {
+                $ne: "SUCCESS"
+            },
+            createdAt: {
+                $gte: fromDate,
+                $lte: toDate
+            }
+        };
+
+        if (classGroupId) {
+            attemptQuery.classGroup = classGroupId;
+        }
+
+        if (subjectId) {
+            attemptQuery.subject = subjectId;
+        }
+
+        if (teacherId) {
+            attemptQuery.teacher = teacherId;
+        }
+
+        if (studentId) {
+            attemptQuery.student = studentId;
+        }
+
+        const suspiciousAttempts = await AttendanceAttempt.find(attemptQuery)
+            .populate("student")
+            .populate("attendanceSession")
+            .populate("subject")
+            .populate("teacher")
+            .populate("classGroup")
+            .populate("classroom")
+            .sort({
+                createdAt: -1
+            });
+
+        const rows = [];
+
+        rows.push([
+            "Date",
+            "Time",
+            "Student Name",
+            "Enrollment Number",
+            "Class Group",
+            "Subject",
+            "Teacher",
+            "Classroom",
+            "Result",
+            "Reason Code",
+            "Reason Message",
+            "Distance From Teacher (m)",
+            "Allowed Radius (m)",
+            "GPS Accuracy (m)",
+            "Max Allowed Accuracy (m)",
+            "Student Latitude",
+            "Student Longitude",
+            "Teacher Latitude",
+            "Teacher Longitude",
+            "IP Address",
+            "User Agent"
+        ]);
+
+        suspiciousAttempts.forEach(function (attempt) {
+            rows.push([
+                attempt.createdAt ? new Date(attempt.createdAt).toLocaleDateString() : "",
+                attempt.createdAt ? new Date(attempt.createdAt).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit"
+                }) : "",
+
+                attempt.studentName || (attempt.student ? attempt.student.fullName : ""),
+                attempt.enrollmentNumber || (attempt.student ? attempt.student.enrollmentNumber : ""),
+
+                attempt.classGroup ? attempt.classGroup.name : "",
+                attempt.subject ? attempt.subject.subjectName : "",
+                attempt.teacher ? attempt.teacher.fullName : "",
+                attempt.classroom ? attempt.classroom.classroomName : "",
+
+                attempt.result || "",
+                attempt.reasonCode || "",
+                attempt.reasonMessage || "",
+
+                Math.round(attempt.distanceFromTeacher || 0),
+                Math.round(attempt.allowedRadius || 0),
+                Math.round(attempt.gpsAccuracy || 0),
+                Math.round(attempt.maxAllowedAccuracy || 0),
+
+                attempt.studentLatitude || "",
+                attempt.studentLongitude || "",
+                attempt.teacherLatitude || "",
+                attempt.teacherLongitude || "",
+
+                attempt.ip || "",
+                attempt.userAgent || ""
+            ]);
+        });
+
+        const filename =
+            "suspicious-attendance-attempts-" +
+            filters.fromDate +
+            "-to-" +
+            filters.toDate +
+            ".csv";
+
+        sendCsvResponse(res, filename, rows);
+
+    } catch (err) {
+        console.log("ADMIN EXPORT SUSPICIOUS ATTEMPTS ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.redirect("/admin/reports");
+    }
+});
+
+
+router.get("/change-password", isCollegeAdmin, function (req, res) {
+    res.render("admin/change-password", {
+        admin: req.user,
+        activePage: "change-password",
+        message: null,
+        messageType: null
+    });
+});
+
+router.post("/change-password", isCollegeAdmin, async function (req, res) {
+    try {
+        const currentPassword = cleanText(req.body.currentPassword);
+        const newPassword = cleanText(req.body.newPassword);
+        const confirmPassword = cleanText(req.body.confirmPassword);
+
+        const loggedAdminId = req.user._id || req.user.id;
+        const collegeId = req.collegeId || req.user.college;
+
+        if (!currentPassword || !newPassword || !confirmPassword) {
+            return res.render("admin/change-password", {
+                admin: req.user,
+                activePage: "change-password",
+                message: "All password fields are required.",
+                messageType: "error"
+            });
+        }
+
+        if (newPassword.length < 6) {
+            return res.render("admin/change-password", {
+                admin: req.user,
+                activePage: "change-password",
+                message: "New password must be at least 6 characters long.",
+                messageType: "error"
+            });
+        }
+
+        if (newPassword !== confirmPassword) {
+            return res.render("admin/change-password", {
+                admin: req.user,
+                activePage: "change-password",
+                message: "New password and confirm password do not match.",
+                messageType: "error"
+            });
+        }
+
+        if (currentPassword === newPassword) {
+            return res.render("admin/change-password", {
+                admin: req.user,
+                activePage: "change-password",
+                message: "New password cannot be the same as current password.",
+                messageType: "error"
+            });
+        }
+
+        if (!loggedAdminId || !collegeId) {
+            return res.render("admin/change-password", {
+                admin: req.user,
+                activePage: "change-password",
+                message: "Admin session is invalid. Please logout and login again.",
+                messageType: "error"
+            });
+        }
+
+        const admin = await Teacher.findOne({
+            _id: loggedAdminId,
+            role: "ADMIN",
+            college: collegeId
+        });
+
+        if (!admin) {
+            return res.render("admin/change-password", {
+                admin: req.user,
+                activePage: "change-password",
+                message: "Admin account not found.",
+                messageType: "error"
+            });
+        }
+
+        let isPasswordCorrect = false;
+
+        if (admin.password && admin.password.startsWith("$2")) {
+            isPasswordCorrect = await bcrypt.compare(currentPassword, admin.password);
+        } else {
+            isPasswordCorrect = currentPassword === admin.password;
+        }
+
+        if (!isPasswordCorrect) {
+            return res.render("admin/change-password", {
+                admin: req.user,
+                activePage: "change-password",
+                message: "Current password is incorrect.",
+                messageType: "error"
+            });
+        }
+
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+        await Teacher.updateOne(
+            {
+                _id: admin._id,
+                role: "ADMIN",
+                college: collegeId
+            },
+            {
+                $set: {
+                    password: hashedPassword
+                }
+            }
+        );
+
+        return res.render("admin/change-password", {
+            admin: req.user,
+            activePage: "change-password",
+            message: "Password changed successfully. Please use the new password next time you login.",
+            messageType: "success"
+        });
+
+    } catch (err) {
+        console.log("ADMIN CHANGE PASSWORD ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        return res.render("admin/change-password", {
+            admin: req.user,
+            activePage: "change-password",
+            message: "Something went wrong while changing password: " + err.message,
+            messageType: "error"
+        });
+    }
+});
+
 
 router.get("/login", function (req, res) {
     if (
@@ -356,12 +1851,22 @@ router.get("/dashboard", isCollegeAdmin, async function (req, res) {
         const college = req.college || await College.findById(collegeId);
 
         const counts = {
-            classGroups: await ClassGroup.countDocuments({ college: collegeId }),
-            classrooms: await Classroom.countDocuments({ college: collegeId }),
-            subjects: await Subject.countDocuments({ college: collegeId }),
+            classGroups: await ClassGroup.countDocuments({
+                college: collegeId,
+                isActive: true
+            }),
+            classrooms: await Classroom.countDocuments({
+                college: collegeId,
+                isDeleted: { $ne: true }
+            }),
+            subjects: await Subject.countDocuments({
+                college: collegeId,
+                isActive: true
+            }),
             teachers: await Teacher.countDocuments({
                 college: collegeId,
-                role: { $in: ["TEACHER", "HOD"] }
+                role: { $in: ["TEACHER", "HOD"] },
+                isDeleted: { $ne: true }
             }),
             students: await Student.countDocuments({ college: collegeId }),
             schedules: await Schedule.countDocuments({ college: collegeId })
@@ -385,6 +1890,165 @@ router.get("/dashboard", isCollegeAdmin, async function (req, res) {
     }
 });
 
+router.get("/notifications", isCollegeAdmin, async function (req, res) {
+    try {
+        const collegeId = getCollegeId(req);
+
+        const notifications = await getRecentNotifications(
+            getAdminNotificationFilter(collegeId),
+            120
+        );
+
+        const unreadCount = await getUnreadCount(getAdminNotificationFilter(collegeId));
+
+        const pendingPasskeyRequests = await PasskeySetupRequest.find({
+            college: collegeId,
+            status: "PENDING"
+        })
+            .populate({
+                path: "student",
+                select: "fullName enrollmentNumber email classGroup department semester",
+                populate: {
+                    path: "classGroup",
+                    select: "name"
+                }
+            })
+            .sort({ createdAt: -1 })
+            .lean();
+
+        res.render("admin/notifications", {
+            admin: req.user,
+            notifications: notifications,
+            unreadCount: unreadCount,
+            pendingPasskeyRequests: pendingPasskeyRequests,
+            message: getFlashMessage(req.query.message),
+            error: null,
+            activePage: "notifications"
+        });
+    } catch (err) {
+        console.log("ADMIN NOTIFICATIONS PAGE ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.status(500).send("Admin notifications error: " + err.message);
+    }
+});
+
+router.post("/notifications/mark-all-read", isCollegeAdmin, async function (req, res) {
+    try {
+        const collegeId = getCollegeId(req);
+
+        await markAllRead(getAdminNotificationFilter(collegeId));
+
+        const unreadCount = await getUnreadCount(getAdminNotificationFilter(collegeId));
+
+        socketManager.emitNotificationUnreadCount({
+            recipientRole: "ADMIN",
+            collegeId: collegeId,
+            unreadCount: unreadCount
+        });
+
+        res.redirect("/admin/notifications?message=notifications_read");
+    } catch (err) {
+        console.log("ADMIN MARK ALL NOTIFICATIONS READ ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.redirect("/admin/notifications");
+    }
+});
+
+router.post("/notifications/clear-all", isCollegeAdmin, async function (req, res) {
+    try {
+        const collegeId = getCollegeId(req);
+
+        await clearAllNotifications(getAdminNotificationFilter(collegeId));
+
+        socketManager.emitNotificationUnreadCount({
+            recipientRole: "ADMIN",
+            collegeId: collegeId,
+            unreadCount: 0
+        });
+
+        res.redirect("/admin/notifications?message=notifications_cleared");
+    } catch (err) {
+        console.log("ADMIN CLEAR ALL NOTIFICATIONS ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.redirect("/admin/notifications");
+    }
+});
+
+router.post("/notifications/:id/read", isCollegeAdmin, async function (req, res) {
+    try {
+        const collegeId = getCollegeId(req);
+
+        await markNotificationRead(req.params.id, getAdminNotificationFilter(collegeId));
+
+        const unreadCount = await getUnreadCount(getAdminNotificationFilter(collegeId));
+
+        socketManager.emitNotificationUnreadCount({
+            recipientRole: "ADMIN",
+            collegeId: collegeId,
+            unreadCount: unreadCount
+        });
+
+        res.redirect("/admin/notifications");
+    } catch (err) {
+        console.log("ADMIN MARK NOTIFICATION READ ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.redirect("/admin/notifications");
+    }
+});
+
+router.post("/notifications/:id/delete", isCollegeAdmin, async function (req, res) {
+    try {
+        const collegeId = getCollegeId(req);
+
+        await deleteNotification(req.params.id, getAdminNotificationFilter(collegeId));
+
+        const unreadCount = await getUnreadCount(getAdminNotificationFilter(collegeId));
+
+        socketManager.emitNotificationUnreadCount({
+            recipientRole: "ADMIN",
+            collegeId: collegeId,
+            unreadCount: unreadCount
+        });
+
+        res.redirect("/admin/notifications?message=notification_deleted");
+    } catch (err) {
+        console.log("ADMIN DELETE NOTIFICATION ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.redirect("/admin/notifications");
+    }
+});
+
+router.get("/notifications/unread-count", isCollegeAdmin, async function (req, res) {
+    try {
+        const collegeId = getCollegeId(req);
+        const unreadCount = await getUnreadCount(getAdminNotificationFilter(collegeId));
+
+        res.json({
+            success: true,
+            unreadCount: unreadCount
+        });
+    } catch (err) {
+        console.log("ADMIN NOTIFICATION COUNT ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.status(500).json({
+            success: false,
+            message: "Unable to load unread notification count."
+        });
+    }
+});
+
 /* ================= CLASS GROUPS ================= */
 
 router.get("/class-groups", isCollegeAdmin, async function (req, res) {
@@ -392,7 +2056,8 @@ router.get("/class-groups", isCollegeAdmin, async function (req, res) {
         const collegeId = getCollegeId(req);
 
         const classGroups = await ClassGroup.find({
-            college: collegeId
+            college: collegeId,
+            isActive: true
         }).sort({
             department: 1,
             semester: 1,
@@ -440,6 +2105,26 @@ router.post("/class-groups/create", isCollegeAdmin, async function (req, res) {
         });
 
         if (existingClassGroup) {
+            if (existingClassGroup.isActive === false) {
+                await ClassGroup.updateOne(
+                    {
+                        _id: existingClassGroup._id,
+                        college: collegeId
+                    },
+                    {
+                        $set: {
+                            name: name,
+                            department: department,
+                            semester: semester,
+                            section: section,
+                            isActive: true
+                        }
+                    }
+                );
+
+                return res.redirect("/admin/class-groups?message=created");
+            }
+
             return res.redirect("/admin/class-groups?message=duplicate_class_group");
         }
 
@@ -508,17 +2193,6 @@ router.post("/classrooms/:id/update", isCollegeAdmin, async function (req, res) 
 
         if (duplicateClassroom) {
             return res.redirect("/admin/classrooms?message=duplicate_classroom");
-        }
-
-        const hasActiveAttendanceSession = await AttendanceSession.exists({
-            college: collegeId,
-            classroom: classroomId,
-            isActive: true,
-            status: "ACTIVE"
-        });
-
-        if (hasActiveAttendanceSession) {
-            return res.redirect("/admin/classrooms?message=in_use");
         }
 
         await Classroom.updateOne(
@@ -591,29 +2265,10 @@ router.post("/class-groups/:id/update", isCollegeAdmin, async function (req, res
             return res.redirect("/admin/class-groups?message=duplicate_class_group");
         }
 
-        const hasStudents = await Student.exists({
-            college: collegeId,
-            classGroup: classGroupId
-        });
-
-        const hasSubjects = await Subject.exists({
-            college: collegeId,
-            classGroup: classGroupId
-        });
-
-        const hasSchedules = await Schedule.exists({
-            college: collegeId,
-            classGroup: classGroupId
-        });
-
         const isChangingCoreFields =
             classGroup.department !== department ||
             Number(classGroup.semester) !== semester ||
             classGroup.section !== section;
-
-        if ((hasStudents || hasSubjects || hasSchedules) && isChangingCoreFields) {
-            return res.redirect("/admin/class-groups?message=in_use");
-        }
 
         await ClassGroup.updateOne(
             {
@@ -629,6 +2284,34 @@ router.post("/class-groups/:id/update", isCollegeAdmin, async function (req, res
                 }
             }
         );
+
+        if (isChangingCoreFields) {
+            await Student.updateMany(
+                {
+                    college: collegeId,
+                    classGroup: classGroupId
+                },
+                {
+                    $set: {
+                        department: department,
+                        semester: semester
+                    }
+                }
+            );
+
+            await Subject.updateMany(
+                {
+                    college: collegeId,
+                    classGroup: classGroupId
+                },
+                {
+                    $set: {
+                        department: department,
+                        semester: semester
+                    }
+                }
+            );
+        }
 
         res.redirect("/admin/class-groups?message=updated");
 
@@ -650,43 +2333,39 @@ router.post("/class-groups/:id/delete", isCollegeAdmin, async function (req, res
             return res.redirect("/admin/class-groups?message=invalid_id");
         }
 
-        const classGroup = await ClassGroup.findOne({
-            _id: classGroupId,
-            college: collegeId
-        });
-
-        if (!classGroup) {
-            return res.redirect("/admin/class-groups?message=invalid_class_group");
-        }
-
-        const hasStudents = await Student.exists({
-            college: collegeId,
-            classGroup: classGroupId
-        });
-
-        const hasSubjects = await Subject.exists({
-            college: collegeId,
-            classGroup: classGroupId
-        });
-
-        const hasSchedules = await Schedule.exists({
-            college: collegeId,
-            classGroup: classGroupId
-        });
-
-        if (hasStudents || hasSubjects || hasSchedules) {
-            return res.redirect("/admin/class-groups?message=in_use");
-        }
-
-        await ClassGroup.deleteOne({
-            _id: classGroupId,
-            college: collegeId
-        });
-
-        res.redirect("/admin/class-groups?message=deleted");
+        const result = await deleteClassGroupRecord(collegeId, classGroupId);
+        res.redirect("/admin/class-groups?message=" + result.code);
 
     } catch (err) {
         console.log("ADMIN DELETE CLASS GROUP ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.redirect("/admin/class-groups?message=error");
+    }
+});
+
+router.post("/class-groups/delete-all", isCollegeAdmin, async function (req, res) {
+    try {
+        const collegeId = getCollegeId(req);
+
+        const classGroups = await ClassGroup.find({
+            college: collegeId,
+            isActive: true
+        }).select("_id");
+
+        if (!classGroups || classGroups.length === 0) {
+            return res.redirect("/admin/class-groups?message=nothing_to_delete");
+        }
+
+        for (let i = 0; i < classGroups.length; i++) {
+            await deleteClassGroupRecord(collegeId, classGroups[i]._id);
+        }
+
+        res.redirect("/admin/class-groups?message=bulk_deleted");
+
+    } catch (err) {
+        console.log("ADMIN BULK DELETE CLASS GROUP ERROR:");
         console.log(err.message);
         console.log(err.stack);
 
@@ -701,7 +2380,8 @@ router.get("/classrooms", isCollegeAdmin, async function (req, res) {
         const collegeId = getCollegeId(req);
 
         const classrooms = await Classroom.find({
-            college: collegeId
+            college: collegeId,
+            isDeleted: { $ne: true }
         }).sort({
             buildingName: 1,
             floorNumber: 1,
@@ -749,6 +2429,31 @@ router.post("/classrooms/create", isCollegeAdmin, async function (req, res) {
         });
 
         if (existingClassroom) {
+            if (existingClassroom.isDeleted === true) {
+                await Classroom.updateOne(
+                    {
+                        _id: existingClassroom._id,
+                        college: collegeId
+                    },
+                    {
+                        $set: {
+                            classroomName: classroomName,
+                            buildingName: buildingName,
+                            floorNumber: floorNumber,
+                            radius: radius,
+                            students: [],
+                            attendanceSessions: [],
+                            isDeleted: false
+                        },
+                        $unset: {
+                            deletedAt: ""
+                        }
+                    }
+                );
+
+                return res.redirect("/admin/classrooms?message=created");
+            }
+
             return res.redirect("/admin/classrooms?message=duplicate_classroom");
         }
 
@@ -782,35 +2487,8 @@ router.post("/classrooms/:id/delete", isCollegeAdmin, async function (req, res) 
             return res.redirect("/admin/classrooms?message=invalid_id");
         }
 
-        const classroom = await Classroom.findOne({
-            _id: classroomId,
-            college: collegeId
-        });
-
-        if (!classroom) {
-            return res.redirect("/admin/classrooms?message=invalid_classroom");
-        }
-
-        const hasSchedules = await Schedule.exists({
-            college: collegeId,
-            classroom: classroomId
-        });
-
-        const hasAttendanceSessions = await AttendanceSession.exists({
-            college: collegeId,
-            classroom: classroomId
-        });
-
-        if (hasSchedules || hasAttendanceSessions) {
-            return res.redirect("/admin/classrooms?message=in_use");
-        }
-
-        await Classroom.deleteOne({
-            _id: classroomId,
-            college: collegeId
-        });
-
-        res.redirect("/admin/classrooms?message=deleted");
+        const result = await deleteClassroomRecord(collegeId, classroomId);
+        res.redirect("/admin/classrooms?message=" + result.code);
 
     } catch (err) {
         console.log("ADMIN DELETE CLASSROOM ERROR:");
@@ -821,6 +2499,35 @@ router.post("/classrooms/:id/delete", isCollegeAdmin, async function (req, res) 
     }
 });
 
+router.post("/classrooms/delete-all", isCollegeAdmin, async function (req, res) {
+    try {
+        const collegeId = getCollegeId(req);
+
+        const classrooms = await Classroom.find({
+            college: collegeId,
+            isDeleted: { $ne: true }
+        }).select("_id");
+
+        if (!classrooms || classrooms.length === 0) {
+            return res.redirect("/admin/classrooms?message=nothing_to_delete");
+        }
+
+        for (let i = 0; i < classrooms.length; i++) {
+            await deleteClassroomRecord(collegeId, classrooms[i]._id);
+        }
+
+        res.redirect("/admin/classrooms?message=bulk_deleted");
+
+    } catch (err) {
+        console.log("ADMIN BULK DELETE CLASSROOM ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.redirect("/admin/classrooms?message=error");
+    }
+});
+
+
 /* ================= SUBJECTS ================= */
 
 router.get("/subjects", isCollegeAdmin, async function (req, res) {
@@ -828,7 +2535,8 @@ router.get("/subjects", isCollegeAdmin, async function (req, res) {
         const collegeId = getCollegeId(req);
 
         const subjects = await Subject.find({
-            college: collegeId
+            college: collegeId,
+            isActive: true
         })
         .populate("classGroup")
         .populate("teachers")
@@ -847,11 +2555,9 @@ router.get("/subjects", isCollegeAdmin, async function (req, res) {
             section: 1
         });
 
-        const teachers = await Teacher.find({
-            college: collegeId,
-            role: { $in: ["TEACHER", "HOD"] },
-            isBlocked: false
-        }).sort({
+        const teachers = await Teacher.find(activeTeacherQuery({
+            college: collegeId
+        })).sort({
             fullName: 1
         });
 
@@ -913,12 +2619,10 @@ router.post("/subjects/create", isCollegeAdmin, async function (req, res) {
             return res.redirect("/admin/subjects?message=invalid_class_group");
         }
 
-        const teachers = await Teacher.find({
+        const teachers = await Teacher.find(activeTeacherQuery({
             _id: { $in: teacherIds },
-            college: collegeId,
-            role: { $in: ["TEACHER", "HOD"] },
-            isBlocked: false
-        });
+            college: collegeId
+        }));
 
         if (teachers.length !== teacherIds.length) {
             return res.redirect("/admin/subjects?message=invalid_teacher");
@@ -934,10 +2638,10 @@ router.post("/subjects/create", isCollegeAdmin, async function (req, res) {
             return res.redirect("/admin/subjects?message=duplicate_subject");
         }
 
-        const studentsInClass = await Student.find({
+        const studentsInClass = await Student.find(studentAccountQuery({
             college: collegeId,
             classGroup: classGroupId
-        });
+        }));
 
         const studentIds = studentsInClass.map(function (student) {
             return student._id;
@@ -1048,12 +2752,10 @@ router.post("/subjects/:id/update", isCollegeAdmin, async function (req, res) {
             return res.redirect("/admin/subjects?message=invalid_class_group");
         }
 
-        const teachers = await Teacher.find({
+        const teachers = await Teacher.find(activeTeacherQuery({
             _id: { $in: teacherIds },
-            college: collegeId,
-            role: { $in: ["TEACHER", "HOD"] },
-            isBlocked: { $ne: true }
-        });
+            college: collegeId
+        }));
 
         if (teachers.length !== teacherIds.length) {
             return res.redirect("/admin/subjects?message=invalid_teacher");
@@ -1120,10 +2822,10 @@ router.post("/subjects/:id/update", isCollegeAdmin, async function (req, res) {
             return res.redirect("/admin/subjects?message=in_use");
         }
 
-        const studentsInClassGroup = await Student.find({
+        const studentsInClassGroup = await Student.find(studentAccountQuery({
             college: collegeId,
             classGroup: classGroupId
-        }).select("_id");
+        })).select("_id");
 
         const studentIds = studentsInClassGroup.map(function (student) {
             return student._id;
@@ -1307,10 +3009,9 @@ router.get("/teachers", isCollegeAdmin, async function (req, res) {
     try {
         const collegeId = getCollegeId(req);
 
-        const teachers = await Teacher.find({
-            college: collegeId,
-            role: { $in: ["TEACHER", "HOD"] }
-        })
+        const teachers = await Teacher.find(teacherAccountQuery({
+            college: collegeId
+        }))
             .populate("subjects")
             .sort({ fullName: 1 });
 
@@ -1321,7 +3022,8 @@ router.get("/teachers", isCollegeAdmin, async function (req, res) {
 
         const teacherDepartments = await Teacher.distinct("department", {
             college: collegeId,
-            role: { $in: ["TEACHER", "HOD"] }
+            role: { $in: ["TEACHER", "HOD"] },
+            isDeleted: { $ne: true }
         });
 
         const departments = Array.from(
@@ -1376,18 +3078,73 @@ router.post("/teachers/create", isCollegeAdmin, async function (req, res) {
             return res.redirect("/admin/teachers?message=weak_password");
         }
 
-        const existingTeacher = await Teacher.findOne({
+        const activeTeacherConflict = await Teacher.findOne({
+            isDeleted: { $ne: true },
             $or: [
                 { email: email },
                 { college: collegeId, employeeId: employeeId }
             ]
         });
 
-        const existingStudentWithEmail = await Student.findOne({
+        const existingStudentWithEmail = await Student.findOne(studentAccountQuery({
             email: email
+        }));
+
+        if (activeTeacherConflict || existingStudentWithEmail) {
+            return res.redirect("/admin/teachers?message=duplicate_teacher");
+        }
+
+        const archivedTeacherByEmail = await Teacher.findOne({
+            email: email,
+            college: collegeId,
+            role: { $in: ["TEACHER", "HOD"] },
+            isDeleted: true
         });
 
-        if (existingTeacher || existingStudentWithEmail) {
+        const archivedTeacherByEmployeeId = await Teacher.findOne({
+            college: collegeId,
+            employeeId: employeeId,
+            role: { $in: ["TEACHER", "HOD"] },
+            isDeleted: true
+        });
+
+        if (
+            archivedTeacherByEmail &&
+            archivedTeacherByEmployeeId &&
+            archivedTeacherByEmail._id.toString() !== archivedTeacherByEmployeeId._id.toString()
+        ) {
+            return res.redirect("/admin/teachers?message=duplicate_teacher");
+        }
+
+        const archivedTeacher = archivedTeacherByEmail || archivedTeacherByEmployeeId;
+
+        if (archivedTeacher) {
+            archivedTeacher.fullName = fullName;
+            archivedTeacher.email = email;
+            archivedTeacher.password = password;
+            archivedTeacher.employeeId = employeeId;
+            archivedTeacher.department = department;
+            archivedTeacher.role = role;
+            archivedTeacher.subjects = [];
+            archivedTeacher.attendanceSessions = [];
+            archivedTeacher.isBlocked = false;
+            archivedTeacher.isDeleted = false;
+            archivedTeacher.deletedAt = undefined;
+
+            await archivedTeacher.save();
+
+            return res.redirect("/admin/teachers?message=created");
+        }
+
+        const archivedTeacherConflict = await Teacher.findOne({
+            isDeleted: true,
+            $or: [
+                { email: email },
+                { college: collegeId, employeeId: employeeId }
+            ]
+        });
+
+        if (archivedTeacherConflict) {
             return res.redirect("/admin/teachers?message=duplicate_teacher");
         }
 
@@ -1448,13 +3205,23 @@ router.post("/teachers/:id/update", isCollegeAdmin, async function (req, res) {
             return res.redirect("/admin/teachers?message=weak_password");
         }
 
-        const teacher = await Teacher.findOne({
+        const teacher = await Teacher.findOne(teacherAccountQuery({
             _id: teacherId,
-            college: collegeId,
-            role: { $in: ["TEACHER", "HOD"] }
-        });
+            college: collegeId
+        }));
 
         if (!teacher) {
+            const archivedTeacher = await Teacher.findOne({
+                _id: teacherId,
+                college: collegeId,
+                role: { $in: ["TEACHER", "HOD"] },
+                isDeleted: true
+            });
+
+            if (archivedTeacher) {
+                return res.redirect("/admin/teachers?message=teacher_archived");
+            }
+
             return res.redirect("/admin/teachers?message=invalid_teacher");
         }
 
@@ -1466,36 +3233,25 @@ router.post("/teachers/:id/update", isCollegeAdmin, async function (req, res) {
             ]
         });
 
-        const duplicateStudentEmail = await Student.findOne({
+        const duplicateStudentEmail = await Student.findOne(studentAccountQuery({
             email: email
-        });
+        }));
 
         if (duplicateTeacher || duplicateStudentEmail) {
             return res.redirect("/admin/teachers?message=duplicate_teacher");
         }
 
-        const updateData = {
-            fullName: fullName,
-            email: email,
-            employeeId: employeeId,
-            department: department,
-            role: role
-        };
+        teacher.fullName = fullName;
+        teacher.email = email;
+        teacher.employeeId = employeeId;
+        teacher.department = department;
+        teacher.role = role;
 
         if (password) {
-            updateData.password = password;
+            teacher.password = password;
         }
 
-        await Teacher.updateOne(
-            {
-                _id: teacherId,
-                college: collegeId,
-                role: { $in: ["TEACHER", "HOD"] }
-            },
-            {
-                $set: updateData
-            }
-        );
+        await teacher.save();
 
         res.redirect("/admin/teachers?message=updated");
 
@@ -1508,6 +3264,7 @@ router.post("/teachers/:id/update", isCollegeAdmin, async function (req, res) {
     }
 });
 
+
 router.post("/teachers/:id/delete", isCollegeAdmin, async function (req, res) {
     try {
         const collegeId = getCollegeId(req);
@@ -1517,46 +3274,8 @@ router.post("/teachers/:id/delete", isCollegeAdmin, async function (req, res) {
             return res.redirect("/admin/teachers?message=invalid_id");
         }
 
-        const teacher = await Teacher.findOne({
-            _id: teacherId,
-            college: collegeId,
-            role: { $in: ["TEACHER", "HOD"] }
-        });
-
-        if (!teacher) {
-            return res.redirect("/admin/teachers?message=invalid_teacher");
-        }
-
-        const hasSchedules = await Schedule.exists({
-            college: collegeId,
-            teacher: teacherId
-        });
-
-        const hasAttendanceSessions = await AttendanceSession.exists({
-            college: collegeId,
-            teacher: teacherId
-        });
-
-        if (hasSchedules || hasAttendanceSessions) {
-            return res.redirect("/admin/teachers?message=in_use");
-        }
-
-        await Subject.updateMany(
-            {
-                college: collegeId
-            },
-            {
-                $pull: { teachers: teacher._id }
-            }
-        );
-
-        await Teacher.deleteOne({
-            _id: teacherId,
-            college: collegeId,
-            role: { $in: ["TEACHER", "HOD"] }
-        });
-
-        res.redirect("/admin/teachers?message=deleted");
+        const result = await deleteTeacherRecord(collegeId, teacherId);
+        res.redirect("/admin/teachers?message=" + result.code);
 
     } catch (err) {
         console.log("ADMIN DELETE TEACHER ERROR:");
@@ -1567,15 +3286,43 @@ router.post("/teachers/:id/delete", isCollegeAdmin, async function (req, res) {
     }
 });
 
+router.post("/teachers/delete-all", isCollegeAdmin, async function (req, res) {
+    try {
+        const collegeId = getCollegeId(req);
+
+        const teachers = await Teacher.find(teacherAccountQuery({
+            college: collegeId
+        })).select("_id");
+
+        if (!teachers || teachers.length === 0) {
+            return res.redirect("/admin/teachers?message=nothing_to_delete");
+        }
+
+        for (let i = 0; i < teachers.length; i++) {
+            await deleteTeacherRecord(collegeId, teachers[i]._id);
+        }
+
+        res.redirect("/admin/teachers?message=bulk_deleted");
+
+    } catch (err) {
+        console.log("ADMIN BULK DELETE TEACHER ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.redirect("/admin/teachers?message=error");
+    }
+});
+
+
 /* ================= STUDENTS ================= */
 
 router.get("/students", isCollegeAdmin, async function (req, res) {
     try {
         const collegeId = getCollegeId(req);
 
-        const students = await Student.find({
+        const students = await Student.find(studentAccountQuery({
             college: collegeId
-        })
+        }))
         .populate("classGroup")
         .sort({
             fullName: 1
@@ -1590,10 +3337,53 @@ router.get("/students", isCollegeAdmin, async function (req, res) {
             section: 1
         });
 
+        const schedules = await Schedule.find({
+            college: collegeId
+        })
+        .select("classGroup classroom")
+        .populate({
+            path: "classGroup",
+            select: "_id"
+        })
+        .populate({
+            path: "classroom",
+            select: "classroomName"
+        });
+
+        const classroomsByClassGroup = {};
+
+        schedules.forEach(function (scheduleItem) {
+            if (
+                !scheduleItem ||
+                !scheduleItem.classGroup ||
+                !scheduleItem.classGroup._id ||
+                !scheduleItem.classroom ||
+                !scheduleItem.classroom.classroomName
+            ) {
+                return;
+            }
+
+            const classGroupId = scheduleItem.classGroup._id.toString();
+            const classroomName = scheduleItem.classroom.classroomName.toString();
+
+            if (!classroomsByClassGroup[classGroupId]) {
+                classroomsByClassGroup[classGroupId] = [];
+            }
+
+            if (!classroomsByClassGroup[classGroupId].includes(classroomName)) {
+                classroomsByClassGroup[classGroupId].push(classroomName);
+            }
+        });
+
+        Object.keys(classroomsByClassGroup).forEach(function (classGroupId) {
+            classroomsByClassGroup[classGroupId].sort();
+        });
+
         res.render("admin/students", {
             admin: req.user,
             students: students,
             classGroups: classGroups,
+            classroomsByClassGroup: classroomsByClassGroup,
             message: getFlashMessage(req.query.message),
             csvImportResult: getStudentImportResult(req),
             error: null,
@@ -1660,7 +3450,7 @@ router.post("/students/create", isCollegeAdmin, async function (req, res) {
             email: email
         });
 
-        if (existingStudent || existingTeacherWithEmail) {
+        if (existingTeacherWithEmail) {
             return res.redirect("/admin/students?message=duplicate_student");
         }
 
@@ -1673,6 +3463,90 @@ router.post("/students/create", isCollegeAdmin, async function (req, res) {
         const subjectIds = subjectsInGroup.map(function (subject) {
             return subject._id;
         });
+
+        if (existingStudent) {
+            const existingStudentCollegeId = existingStudent.college
+                ? existingStudent.college.toString()
+                : "";
+
+            if (
+                existingStudent.isDeleted === true &&
+                existingStudentCollegeId === collegeId.toString()
+            ) {
+                existingStudent.fullName = fullName;
+                existingStudent.email = email;
+                existingStudent.password = password;
+                existingStudent.enrollmentNumber = enrollmentNumber;
+                existingStudent.department = department;
+                existingStudent.semester = semester;
+                existingStudent.classGroup = classGroupId;
+                existingStudent.subjects = subjectIds;
+                existingStudent.isBlocked = false;
+                existingStudent.isDeleted = false;
+                existingStudent.deletedAt = undefined;
+                existingStudent.passkeys = [];
+                existingStudent.trustedDevices = [];
+                existingStudent.passkeySetupAllowedAt = undefined;
+                existingStudent.passkeySetupAllowedUntil = undefined;
+                existingStudent.trustedDeviceSetupAllowedAt = undefined;
+                existingStudent.trustedDeviceSetupAllowedUntil = undefined;
+                existingStudent.trustedDeviceSetupAllowedBy = undefined;
+
+                await existingStudent.save();
+                await PasskeySetupRequest.deleteMany({
+                    college: collegeId,
+                    student: existingStudent._id
+                });
+
+                await ClassGroup.updateMany(
+                    {
+                        college: collegeId
+                    },
+                    {
+                        $pull: { students: existingStudent._id }
+                    }
+                );
+
+                await Subject.updateMany(
+                    {
+                        college: collegeId
+                    },
+                    {
+                        $pull: { students: existingStudent._id }
+                    }
+                );
+
+                await ClassGroup.updateOne(
+                    {
+                        _id: classGroupId,
+                        college: collegeId
+                    },
+                    {
+                        $addToSet: { students: existingStudent._id }
+                    }
+                );
+
+                await Subject.updateMany(
+                    {
+                        _id: { $in: subjectIds },
+                        college: collegeId
+                    },
+                    {
+                        $addToSet: { students: existingStudent._id }
+                    }
+                );
+
+                socketManager.emitScheduleChanged({
+                    reason: "student-restored",
+                    collegeId: collegeId,
+                    classGroupId: classGroupId
+                });
+
+                return res.redirect("/admin/students?message=created");
+            }
+
+            return res.redirect("/admin/students?message=duplicate_student");
+        }
 
         const student = await Student.create({
             fullName: fullName,
@@ -1706,6 +3580,12 @@ router.post("/students/create", isCollegeAdmin, async function (req, res) {
                 $addToSet: { students: student._id }
             }
         );
+
+        socketManager.emitScheduleChanged({
+            reason: "student-created",
+            collegeId: collegeId,
+            classGroupId: classGroupId
+        });
 
         res.redirect("/admin/students?message=created");
 
@@ -1754,10 +3634,10 @@ router.post("/students/:id/update", isCollegeAdmin, async function (req, res) {
             return res.redirect("/admin/students?message=weak_password");
         }
 
-        const student = await Student.findOne({
+        const student = await Student.findOne(studentAccountQuery({
             _id: studentId,
             college: collegeId
-        });
+        }));
 
         if (!student) {
             return res.redirect("/admin/students?message=invalid_id");
@@ -1775,6 +3655,7 @@ router.post("/students/:id/update", isCollegeAdmin, async function (req, res) {
 
         const duplicateStudent = await Student.findOne({
             _id: { $ne: studentId },
+            isDeleted: { $ne: true },
             $or: [
                 { email: email },
                 { college: collegeId, enrollmentNumber: enrollmentNumber }
@@ -1794,17 +3675,6 @@ router.post("/students/:id/update", isCollegeAdmin, async function (req, res) {
 
         const isChangingClassGroup = oldClassGroupId !== newClassGroupId;
 
-        if (isChangingClassGroup) {
-            const hasAttendanceRecords = await AttendanceRecord.exists({
-                college: collegeId,
-                student: studentId
-            });
-
-            if (hasAttendanceRecords) {
-                return res.redirect("/admin/students?message=in_use");
-            }
-        }
-
         const subjectsInNewClass = await Subject.find({
             college: collegeId,
             classGroup: classGroupId,
@@ -1815,29 +3685,19 @@ router.post("/students/:id/update", isCollegeAdmin, async function (req, res) {
             return subject._id;
         });
 
-        const updateData = {
-            fullName: fullName,
-            email: email,
-            enrollmentNumber: enrollmentNumber,
-            department: department,
-            semester: semester,
-            classGroup: classGroupId,
-            subjects: newSubjectIds
-        };
+        student.fullName = fullName;
+        student.email = email;
+        student.enrollmentNumber = enrollmentNumber;
+        student.department = department;
+        student.semester = semester;
+        student.classGroup = classGroupId;
+        student.subjects = newSubjectIds;
 
         if (password) {
-            updateData.password = password;
+            student.password = password;
         }
 
-        await Student.updateOne(
-            {
-                _id: studentId,
-                college: collegeId
-            },
-            {
-                $set: updateData
-            }
-        );
+        await student.save();
 
         if (isChangingClassGroup) {
             await ClassGroup.updateMany(
@@ -1879,10 +3739,407 @@ router.post("/students/:id/update", isCollegeAdmin, async function (req, res) {
             );
         }
 
+        socketManager.emitScheduleChanged({
+            reason: "student-updated",
+            collegeId: collegeId,
+            classGroupId: classGroupId
+        });
+
         res.redirect("/admin/students?message=updated");
 
     } catch (err) {
         console.log("ADMIN UPDATE STUDENT ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.redirect("/admin/students?message=error");
+    }
+});
+
+router.post("/students/:id/reset-passkeys", isCollegeAdmin, async function (req, res) {
+    try {
+        const collegeId = getCollegeId(req);
+        const studentId = req.params.id;
+
+        if (!isValidObjectId(studentId)) {
+            return res.redirect("/admin/students?message=invalid_id");
+        }
+
+        const student = await Student.findOne(studentAccountQuery({
+            _id: studentId,
+            college: collegeId
+        }));
+
+        if (!student) {
+            return res.redirect("/admin/students?message=invalid_id");
+        }
+
+        await Student.updateOne(
+            {
+                _id: studentId,
+                college: collegeId
+            },
+            {
+                $set: {
+                    passkeys: [],
+                    trustedDevices: [],
+                    passkeySetupAllowedAt: new Date(),
+                    passkeySetupAllowedUntil: new Date(Date.now() + 30 * 60 * 1000),
+                    passkeySetupAllowedBy: req.user._id
+                }
+            }
+        );
+
+        await PasskeySetupRequest.updateMany(
+            {
+                college: collegeId,
+                student: studentId,
+                status: "PENDING"
+            },
+            {
+                $set: {
+                    status: "APPROVED",
+                    reviewedAt: new Date(),
+                    reviewedBy: req.user._id,
+                    reviewNote: "Approved automatically when admin reset passkeys."
+                }
+            }
+        );
+
+        const studentNotification = await createNotification({
+            college: collegeId,
+            recipientRole: "STUDENT",
+            recipientUserId: student._id,
+            title: "Passkeys reset by admin",
+            message: "Your passkeys were reset. You can register a new passkey for 30 minutes.",
+            category: "PASSKEY_SETUP",
+            level: "warning",
+            link: "/student/passkeys",
+            createdByType: "teacher",
+            createdById: req.user._id
+        });
+
+        socketManager.emitNotification(studentNotification);
+
+        const studentUnreadCount = await getUnreadCount({
+            recipientRole: "STUDENT",
+            recipientUserId: student._id
+        });
+
+        socketManager.emitNotificationUnreadCount({
+            recipientRole: "STUDENT",
+            recipientUserId: student._id,
+            unreadCount: studentUnreadCount
+        });
+
+        res.redirect("/admin/students?message=passkeys_reset");
+
+    } catch (err) {
+        console.log("ADMIN RESET STUDENT PASSKEYS ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.redirect("/admin/students?message=error");
+    }
+});
+
+router.post("/passkey-requests/:id/approve", isCollegeAdmin, async function (req, res) {
+    try {
+        const collegeId = getCollegeId(req);
+        const requestId = req.params.id;
+
+        if (!isValidObjectId(requestId)) {
+            return res.redirect("/admin/notifications?message=passkey_request_missing");
+        }
+
+        const request = await PasskeySetupRequest.findOne({
+            _id: requestId,
+            college: collegeId,
+            status: "PENDING"
+        }).populate("student");
+
+        if (!request || !request.student) {
+            return res.redirect("/admin/notifications?message=passkey_request_missing");
+        }
+
+        await Student.updateOne(
+            {
+                _id: request.student._id,
+                college: collegeId
+            },
+            {
+                $set: {
+                    passkeySetupAllowedAt: new Date(),
+                    passkeySetupAllowedUntil: new Date(Date.now() + 30 * 60 * 1000),
+                    passkeySetupAllowedBy: req.user._id
+                }
+            }
+        );
+
+        request.status = "APPROVED";
+        request.reviewedAt = new Date();
+        request.reviewedBy = req.user._id;
+        request.reviewNote = cleanText(req.body.reviewNote);
+
+        await request.save();
+
+        const studentNotification = await createNotification({
+            college: collegeId,
+            recipientRole: "STUDENT",
+            recipientUserId: request.student._id,
+            title: "Passkey request approved",
+            message: "Your passkey setup request was approved. You can now register a new passkey for 30 minutes.",
+            category: "PASSKEY_REQUEST",
+            level: "success",
+            link: "/student/passkeys",
+            metadata: {
+                requestId: request._id.toString()
+            },
+            createdByType: "teacher",
+            createdById: req.user._id
+        });
+
+        socketManager.emitNotification(studentNotification);
+
+        const studentUnreadCount = await getUnreadCount({
+            recipientRole: "STUDENT",
+            recipientUserId: request.student._id
+        });
+
+        socketManager.emitNotificationUnreadCount({
+            recipientRole: "STUDENT",
+            recipientUserId: request.student._id,
+            unreadCount: studentUnreadCount
+        });
+
+        const adminUnreadCount = await getUnreadCount(getAdminNotificationFilter(collegeId));
+
+        socketManager.emitNotificationUnreadCount({
+            recipientRole: "ADMIN",
+            collegeId: collegeId,
+            unreadCount: adminUnreadCount
+        });
+
+        res.redirect("/admin/notifications?message=passkey_request_approved");
+    } catch (err) {
+        console.log("ADMIN APPROVE PASSKEY REQUEST ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.redirect("/admin/notifications?message=error");
+    }
+});
+
+router.post("/passkey-requests/:id/reject", isCollegeAdmin, async function (req, res) {
+    try {
+        const collegeId = getCollegeId(req);
+        const requestId = req.params.id;
+
+        if (!isValidObjectId(requestId)) {
+            return res.redirect("/admin/notifications?message=passkey_request_missing");
+        }
+
+        const request = await PasskeySetupRequest.findOne({
+            _id: requestId,
+            college: collegeId,
+            status: "PENDING"
+        }).populate("student");
+
+        if (!request || !request.student) {
+            return res.redirect("/admin/notifications?message=passkey_request_missing");
+        }
+
+        const reviewNote = cleanText(req.body.reviewNote);
+
+        request.status = "REJECTED";
+        request.reviewedAt = new Date();
+        request.reviewedBy = req.user._id;
+        request.reviewNote = reviewNote;
+
+        await request.save();
+
+        const studentNotification = await createNotification({
+            college: collegeId,
+            recipientRole: "STUDENT",
+            recipientUserId: request.student._id,
+            title: "Passkey request rejected",
+            message:
+                "Your passkey setup request was rejected." +
+                (reviewNote ? " Reason: " + reviewNote : ""),
+            category: "PASSKEY_REQUEST",
+            level: "danger",
+            link: "/student/passkeys",
+            metadata: {
+                requestId: request._id.toString()
+            },
+            createdByType: "teacher",
+            createdById: req.user._id
+        });
+
+        socketManager.emitNotification(studentNotification);
+
+        const studentUnreadCount = await getUnreadCount({
+            recipientRole: "STUDENT",
+            recipientUserId: request.student._id
+        });
+
+        socketManager.emitNotificationUnreadCount({
+            recipientRole: "STUDENT",
+            recipientUserId: request.student._id,
+            unreadCount: studentUnreadCount
+        });
+
+        const adminUnreadCount = await getUnreadCount(getAdminNotificationFilter(collegeId));
+
+        socketManager.emitNotificationUnreadCount({
+            recipientRole: "ADMIN",
+            collegeId: collegeId,
+            unreadCount: adminUnreadCount
+        });
+
+        res.redirect("/admin/notifications?message=passkey_request_rejected");
+    } catch (err) {
+        console.log("ADMIN REJECT PASSKEY REQUEST ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.redirect("/admin/notifications?message=error");
+    }
+});
+
+
+router.post("/students/:id/allow-passkey-setup", isCollegeAdmin, async function (req, res) {
+    try {
+        const collegeId = getCollegeId(req);
+        const studentId = req.params.id;
+
+        if (!isValidObjectId(studentId)) {
+            return res.redirect("/admin/students?message=invalid_id");
+        }
+
+        const student = await Student.findOne(studentAccountQuery({
+            _id: studentId,
+            college: collegeId
+        }));
+
+        if (!student) {
+            return res.redirect("/admin/students?message=invalid_id");
+        }
+
+        student.passkeySetupAllowedAt = new Date();
+        student.passkeySetupAllowedUntil = new Date(Date.now() + 30 * 60 * 1000);
+        student.passkeySetupAllowedBy = req.user._id;
+
+        await student.save();
+
+        await PasskeySetupRequest.updateMany(
+            {
+                college: collegeId,
+                student: studentId,
+                status: "PENDING"
+            },
+            {
+                $set: {
+                    status: "APPROVED",
+                    reviewedAt: new Date(),
+                    reviewedBy: req.user._id,
+                    reviewNote: "Approved from allow-passkey-setup action."
+                }
+            }
+        );
+
+        const studentNotification = await createNotification({
+            college: collegeId,
+            recipientRole: "STUDENT",
+            recipientUserId: student._id,
+            title: "Passkey setup approved",
+            message: "Your admin allowed passkey setup for 30 minutes. Register now.",
+            category: "PASSKEY_SETUP",
+            level: "success",
+            link: "/student/passkeys",
+            createdByType: "teacher",
+            createdById: req.user._id
+        });
+
+        socketManager.emitNotification(studentNotification);
+
+        const studentUnreadCount = await getUnreadCount({
+            recipientRole: "STUDENT",
+            recipientUserId: student._id
+        });
+
+        socketManager.emitNotificationUnreadCount({
+            recipientRole: "STUDENT",
+            recipientUserId: student._id,
+            unreadCount: studentUnreadCount
+        });
+
+        res.redirect("/admin/students?message=passkey_setup_allowed");
+
+    } catch (err) {
+        console.log("ADMIN ALLOW PASSKEY SETUP ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.redirect("/admin/students?message=error");
+    }
+});
+
+
+router.post("/students/:id/allow-trusted-device-setup", isCollegeAdmin, async function (req, res) {
+    try {
+        const collegeId = getCollegeId(req);
+        const studentId = req.params.id;
+
+        if (!isValidObjectId(studentId)) {
+            return res.redirect("/admin/students?message=invalid_id");
+        }
+
+        const student = await Student.findOne(studentAccountQuery({
+            _id: studentId,
+            college: collegeId
+        }));
+
+        if (!student) {
+            return res.redirect("/admin/students?message=invalid_id");
+        }
+
+        student.trustedDeviceSetupAllowedAt = new Date();
+        student.trustedDeviceSetupAllowedUntil = new Date(Date.now() + 30 * 60 * 1000);
+        student.trustedDeviceSetupAllowedBy = req.user._id;
+
+        await student.save();
+
+        const studentNotification = await createNotification({
+            college: collegeId,
+            recipientRole: "STUDENT",
+            recipientUserId: student._id,
+            title: "Browser fallback approved",
+            message: "Your admin allowed trusted-browser fallback for 30 minutes. Use this only if your browser does not support passkeys.",
+            category: "PASSKEY_SETUP",
+            level: "success",
+            link: "/student/passkeys",
+            createdByType: "teacher",
+            createdById: req.user._id
+        });
+
+        socketManager.emitNotification(studentNotification);
+
+        const studentUnreadCount = await getUnreadCount({
+            recipientRole: "STUDENT",
+            recipientUserId: student._id
+        });
+
+        socketManager.emitNotificationUnreadCount({
+            recipientRole: "STUDENT",
+            recipientUserId: student._id,
+            unreadCount: studentUnreadCount
+        });
+
+        res.redirect("/admin/students?message=trusted_device_setup_allowed");
+
+    } catch (err) {
+        console.log("ADMIN ALLOW TRUSTED DEVICE SETUP ERROR:");
         console.log(err.message);
         console.log(err.stack);
 
@@ -1900,52 +4157,38 @@ router.post("/students/:id/delete", isCollegeAdmin, async function (req, res) {
             return res.redirect("/admin/students?message=invalid_id");
         }
 
-        const student = await Student.findOne({
-            _id: studentId,
-            college: collegeId
-        });
-
-        if (!student) {
-            return res.redirect("/admin/students?message=invalid_id");
-        }
-
-        const hasAttendanceRecords = await AttendanceRecord.exists({
-            college: collegeId,
-            student: studentId
-        });
-
-        if (hasAttendanceRecords) {
-            return res.redirect("/admin/students?message=in_use");
-        }
-
-        await ClassGroup.updateOne(
-            {
-                _id: student.classGroup,
-                college: collegeId
-            },
-            {
-                $pull: { students: student._id }
-            }
-        );
-
-        await Subject.updateMany(
-            {
-                college: collegeId
-            },
-            {
-                $pull: { students: student._id }
-            }
-        );
-
-        await Student.deleteOne({
-            _id: studentId,
-            college: collegeId
-        });
-
-        res.redirect("/admin/students?message=deleted");
+        const result = await deleteStudentRecord(collegeId, studentId);
+        res.redirect("/admin/students?message=" + result.code);
 
     } catch (err) {
         console.log("ADMIN DELETE STUDENT ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.redirect("/admin/students?message=error");
+    }
+});
+
+router.post("/students/delete-all", isCollegeAdmin, async function (req, res) {
+    try {
+        const collegeId = getCollegeId(req);
+
+        const students = await Student.find(studentAccountQuery({
+            college: collegeId
+        })).select("_id");
+
+        if (!students || students.length === 0) {
+            return res.redirect("/admin/students?message=nothing_to_delete");
+        }
+
+        for (let i = 0; i < students.length; i++) {
+            await deleteStudentRecord(collegeId, students[i]._id);
+        }
+
+        res.redirect("/admin/students?message=bulk_deleted");
+
+    } catch (err) {
+        console.log("ADMIN BULK DELETE STUDENT ERROR:");
         console.log(err.message);
         console.log(err.stack);
 
@@ -1988,11 +4231,9 @@ router.get("/schedules", isCollegeAdmin, async function (req, res) {
             subjectName: 1
         });
 
-        const teachers = await Teacher.find({
-            college: collegeId,
-            role: { $in: ["TEACHER", "HOD"] },
-            isBlocked: false
-        }).sort({
+        const teachers = await Teacher.find(activeTeacherQuery({
+            college: collegeId
+        })).sort({
             fullName: 1
         });
 
@@ -2089,19 +4330,18 @@ router.post("/schedules/create", isCollegeAdmin, async function (req, res) {
 
         const classroom = await Classroom.findOne({
             _id: classroomId,
-            college: collegeId
+            college: collegeId,
+            isDeleted: { $ne: true }
         });
 
         if (!classroom) {
             return res.redirect("/admin/schedules?message=invalid_classroom");
         }
 
-        const teacher = await Teacher.findOne({
+        const teacher = await Teacher.findOne(activeTeacherQuery({
             _id: teacherId,
-            college: collegeId,
-            role: { $in: ["TEACHER", "HOD"] },
-            isBlocked: false
-        });
+            college: collegeId
+        }));
 
         if (!teacher) {
             return res.redirect("/admin/schedules?message=invalid_teacher");
@@ -2169,7 +4409,7 @@ router.post("/schedules/create", isCollegeAdmin, async function (req, res) {
             }
         }
 
-        await Schedule.create({
+        const createdSchedule = await Schedule.create({
             college: collegeId,
             classGroup: classGroupId,
             subject: subjectId,
@@ -2179,6 +4419,36 @@ router.post("/schedules/create", isCollegeAdmin, async function (req, res) {
             startTime: startTime,
             endTime: endTime
         });
+
+        socketManager.emitScheduleChanged({
+            reason: "created",
+            collegeId: collegeId,
+            classGroupId: classGroupId,
+            teacherId: teacherId
+        });
+
+        await notifyTeacher(
+            teacherId,
+            collegeId,
+            "New schedule assigned",
+            (subject.subjectName || "Subject") +
+                " scheduled for " +
+                (classGroup.name || "your class") +
+                " on " +
+                day +
+                " (" +
+                startTime +
+                " - " +
+                endTime +
+                ").",
+            "SCHEDULE",
+            "/teacher/dashboard",
+            {
+                scheduleId: createdSchedule._id.toString(),
+                classGroupId: classGroupId.toString(),
+                classroomId: classroomId.toString()
+            }
+        );
 
         res.redirect("/admin/schedules?message=created");
 
@@ -2240,9 +4510,9 @@ router.get("/students/export", isCollegeAdmin, async function (req, res) {
     try {
         const collegeId = getCollegeId(req);
 
-        const students = await Student.find({
+        const students = await Student.find(studentAccountQuery({
             college: collegeId
-        })
+        }))
             .populate("classGroup")
             .sort({
                 department: 1,
@@ -2623,13 +4893,45 @@ router.post("/schedules/:id/update", isCollegeAdmin, async function (req, res) {
             return res.redirect("/admin/schedules?message=invalid_schedule");
         }
 
+        const activeAttendanceExists = await AttendanceSession.exists({
+            college: collegeId,
+            schedule: scheduleId,
+            isActive: true,
+            status: "ACTIVE",
+            endTime: { $gt: new Date() }
+        });
+
+        if (activeAttendanceExists) {
+            return res.redirect("/admin/schedules?message=active_schedule_session");
+        }
+
         const attendanceExists = await AttendanceSession.exists({
             college: collegeId,
             schedule: scheduleId
         });
 
-        if (attendanceExists) {
-            return res.redirect("/admin/schedules?message=in_use");
+        const changingClassGroup =
+            schedule.classGroup.toString() !== classGroupId.toString();
+
+        const changingSubject =
+            schedule.subject.toString() !== subjectId.toString();
+
+        const changingTeacher =
+            schedule.teacher.toString() !== teacherId.toString();
+
+        const changingClassroom =
+            schedule.classroom.toString() !== classroomId.toString();
+
+        if (
+            attendanceExists &&
+            (
+                changingClassGroup ||
+                changingSubject ||
+                changingTeacher ||
+                changingClassroom
+            )
+        ) {
+            return res.redirect("/admin/schedules?message=schedule_locked_fields");
         }
 
         const classGroup = await ClassGroup.findOne({
@@ -2660,12 +4962,10 @@ router.post("/schedules/:id/update", isCollegeAdmin, async function (req, res) {
             return res.redirect("/admin/schedules?message=invalid_subject_class");
         }
 
-        const teacher = await Teacher.findOne({
+        const teacher = await Teacher.findOne(activeTeacherQuery({
             _id: teacherId,
-            college: collegeId,
-            role: { $in: ["TEACHER", "HOD"] },
-            isBlocked: { $ne: true }
-        });
+            college: collegeId
+        }));
 
         if (!teacher) {
             return res.redirect("/admin/schedules?message=invalid_teacher");
@@ -2710,6 +5010,25 @@ router.post("/schedules/:id/update", isCollegeAdmin, async function (req, res) {
                 existingStartMinutes < endMinutes;
 
             if (isOverlapping) {
+                const sameTeacher =
+                    existingSchedule.teacher.toString() === teacherId.toString();
+                const sameClassGroup =
+                    existingSchedule.classGroup.toString() === classGroupId.toString();
+                const sameClassroom =
+                    existingSchedule.classroom.toString() === classroomId.toString();
+                const sameSubject =
+                    existingSchedule.subject &&
+                    existingSchedule.subject.toString() === subjectId.toString();
+
+                /*
+                    Sometimes duplicate schedule rows exist for the exact same class,
+                    subject, teacher and classroom. Editing one of them should not
+                    fail as a false "teacher conflict".
+                */
+                if (sameTeacher && sameClassGroup && sameClassroom && sameSubject) {
+                    continue;
+                }
+
                 if (existingSchedule.teacher.toString() === teacherId.toString()) {
                     return res.redirect("/admin/schedules?message=teacher_conflict");
                 }
@@ -2724,21 +5043,42 @@ router.post("/schedules/:id/update", isCollegeAdmin, async function (req, res) {
             }
         }
 
-        await Schedule.updateOne(
+        schedule.day = day;
+        schedule.startTime = startTime;
+        schedule.endTime = endTime;
+        schedule.classGroup = classGroupId;
+        schedule.subject = subjectId;
+        schedule.teacher = teacherId;
+        schedule.classroom = classroomId;
+
+        await schedule.save();
+
+        socketManager.emitScheduleChanged({
+            reason: "updated",
+            scheduleId: schedule._id,
+            collegeId: collegeId,
+            classGroupId: schedule.classGroup,
+            teacherId: schedule.teacher
+        });
+
+        await notifyTeacher(
+            teacherId,
+            collegeId,
+            "Schedule updated",
+            (subject.subjectName || "Subject") +
+                " schedule updated: " +
+                day +
+                " (" +
+                startTime +
+                " - " +
+                endTime +
+                ").",
+            "SCHEDULE",
+            "/teacher/dashboard",
             {
-                _id: scheduleId,
-                college: collegeId
-            },
-            {
-                $set: {
-                    day: day,
-                    startTime: startTime,
-                    endTime: endTime,
-                    classGroup: classGroupId,
-                    subject: subjectId,
-                    teacher: teacherId,
-                    classroom: classroomId
-                }
+                scheduleId: schedule._id.toString(),
+                classGroupId: classGroupId.toString(),
+                classroomId: classroomId.toString()
             }
         );
 
@@ -2771,19 +5111,62 @@ router.post("/schedules/:id/delete", isCollegeAdmin, async function (req, res) {
             return res.redirect("/admin/schedules?message=invalid_id");
         }
 
-        const hasAttendanceSessions = await AttendanceSession.exists({
+        const hasActiveAttendanceSession = await AttendanceSession.exists({
             college: collegeId,
-            schedule: scheduleId
+            schedule: scheduleId,
+            isActive: true,
+            status: "ACTIVE"
         });
 
-        if (hasAttendanceSessions) {
-            return res.redirect("/admin/schedules?message=in_use");
+        if (hasActiveAttendanceSession) {
+            return res.redirect("/admin/schedules?message=active_schedule_session");
         }
+
+        await AttendanceSession.updateMany(
+            {
+                college: collegeId,
+                schedule: scheduleId
+            },
+            {
+                $unset: { schedule: "" }
+            }
+        );
+
+        await AttendanceAttempt.updateMany(
+            {
+                college: collegeId,
+                schedule: scheduleId
+            },
+            {
+                $unset: { schedule: "" }
+            }
+        );
 
         await Schedule.deleteOne({
             _id: scheduleId,
             college: collegeId
         });
+
+        socketManager.emitScheduleChanged({
+            reason: "deleted",
+            scheduleId: schedule._id,
+            collegeId: collegeId,
+            classGroupId: schedule.classGroup,
+            teacherId: schedule.teacher
+        });
+
+        await notifyTeacher(
+            schedule.teacher,
+            collegeId,
+            "Schedule removed",
+            "One of your class schedules was removed by admin.",
+            "SCHEDULE",
+            "/teacher/dashboard",
+            {
+                scheduleId: schedule._id.toString(),
+                classGroupId: schedule.classGroup ? schedule.classGroup.toString() : ""
+            }
+        );
 
         res.redirect("/admin/schedules?message=deleted");
 

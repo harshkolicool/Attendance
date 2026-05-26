@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notifications | Student</title>
+
+    <link rel="stylesheet" href="/css/studentSchedule.css">
+    <link rel="stylesheet" href="/css/uiShell.css">
+    <link rel="stylesheet" href="/css/finalUiFix.css">
+
+    <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+    >
+</head>
+<body>
+
+<div class="student-layout">
+    <%- include("student/partials/sidebar", { activePage, student }) %>
+
+    <main class="student-main">
+        <header class="student-header">
+            <div>
+                <span class="student-kicker">Student Panel</span>
+                <h1>Notifications</h1>
+                <p>Track approvals, attendance updates and account alerts.</p>
+            </div>
+        </header>
+
+        <section class="student-history-card">
+            <div class="student-history-card-head">
+                <div>
+                    <h3>Inbox</h3>
+                    <p>Your recent notifications.</p>
+                </div>
+
+                <div class="notification-head-actions">
+                    <span class="student-count-pill">
+                        <%= unreadCount %> Unread
+                    </span>
+
+                    <form action="/student/notifications/mark-all-read" method="POST">
+                        <button class="view-btn" type="submit">
+                            <i class="fa-solid fa-check-double"></i>
+                            Mark All Read
+                        </button>
+                    </form>
+
+                    <form
+                        action="/student/notifications/clear-all"
+                        method="POST"
+                        onsubmit="return confirm('Clear all notifications? This cannot be undone.')"
+                    >
+                        <button class="view-btn marked absent notification-delete-btn" type="submit">
+                            <i class="fa-solid fa-trash"></i>
+                            Clear All
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <% if (!notifications || notifications.length === 0) { %>
+                <div class="student-history-empty">
+                    No notifications yet.
+                </div>
+            <% } else { %>
+                <div class="notification-list">
+                    <% notifications.forEach(function(notification) { %>
+                        <article class="notification-card <%= notification.isRead ? 'read' : 'unread' %>">
+                            <div class="notification-top">
+                                <h4><%= notification.title %></h4>
+                                <span>
+                                    <%= new Date(notification.createdAt).toLocaleString() %>
+                                </span>
+                            </div>
+
+                            <p><%= notification.message %></p>
+
+                            <div class="notification-meta">
+                                <span class="admin-badge">
+                                    <%= notification.category || "GENERAL" %>
+                                </span>
+
+                                <% if (notification.link) { %>
+                                    <a class="view-btn notification-open-link" href="<%= notification.link %>">
+                                        <i class="fa-solid fa-arrow-up-right-from-square"></i>
+                                        Open
+                                    </a>
+                                <% } %>
+
+                                <% if (!notification.isRead) { %>
+                                    <form action="/student/notifications/<%= notification.id %>/read" method="POST">
+                                        <button class="view-btn live notification-action-btn" type="submit">
+                                            <i class="fa-solid fa-check"></i>
+                                            Mark Read
+                                        </button>
+                                    </form>
+                                <% } %>
+
+                                <form
+                                    action="/student/notifications/<%= notification.id %>/delete"
+                                    method="POST"
+                                    onsubmit="return confirm('Delete this notification?')"
+                                >
+                                    <button class="view-btn marked absent notification-delete-btn notification-action-btn" type="submit">
+                                        <i class="fa-solid fa-trash"></i>
+                                        Delete
+                                    </button>
+                                </form>
+                            </div>
+                        </article>
+                    <% }) %>
+                </div>
+            <% } %>
+        </section>
+    </main>
+</div>
+
+<script src="/js/uiShell.js"></script>
+</body>
+</html>

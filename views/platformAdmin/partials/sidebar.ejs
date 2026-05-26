@@ -1,0 +1,49 @@
+<aside class="platform-sidebar">
+    <button class="ui-sidebar-toggle" type="button" aria-label="Toggle sidebar"></button>
+
+    <a href="/platform-admin/dashboard" class="platform-logo">
+        <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
+        <div class="platform-logo-text">
+            <h2>Attendify</h2>
+            <p>Super Admin</p>
+        </div>
+    </a>
+
+    <nav class="platform-menu shell-sidebar-nav" aria-label="Platform navigation">
+        <a
+            href="/platform-admin/dashboard"
+            class="platform-nav-link <%= activePage === 'dashboard' ? 'active' : '' %>"
+        >
+            <i class="fa-solid fa-chart-line" aria-hidden="true"></i>
+            <span class="platform-link-text">Dashboard</span>
+        </a>
+
+        <a
+            href="/platform-admin/requests?status=PENDING"
+            class="platform-nav-link <%= activePage === 'requests' ? 'active' : '' %>"
+        >
+            <i class="fa-solid fa-building-circle-check" aria-hidden="true"></i>
+            <span class="platform-link-text">College Requests</span>
+        </a>
+
+        <a
+            href="/platform-admin/notifications"
+            class="platform-nav-link <%= activePage === 'notifications' ? 'active' : '' %>"
+        >
+            <i class="fa-solid fa-bell" aria-hidden="true"></i>
+            <span class="platform-link-text">Notifications</span>
+            <span class="ui-notification-badge js-notification-badge"></span>
+        </a>
+    </nav>
+
+    <div class="shell-sidebar-footer">
+        <p class="shell-settings-label">Settings</p>
+
+        <form action="/platform-admin/logout" method="POST" class="shell-logout-form">
+            <button class="platform-logout-btn" type="submit">
+                <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i>
+                <span class="platform-link-text">Log Out</span>
+            </button>
+        </form>
+    </div>
+</aside>

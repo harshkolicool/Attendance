@@ -1,8 +1,6 @@
 <aside class="admin-sidebar" id="adminSidebar">
 
-    <button class="admin-sidebar-toggle" id="adminSidebarToggle" type="button">
-        <i class="fa-solid fa-bars"></i>
-    </button>
+    <button class="ui-sidebar-toggle" id="adminSidebarToggle" type="button" aria-label="Toggle sidebar"></button>
 
     <a href="/admin/dashboard" class="admin-brand">
         <div class="admin-brand-icon">
@@ -15,7 +13,7 @@
         </div>
     </a>
 
-    <nav class="admin-menu">
+    <nav class="admin-menu shell-sidebar-nav">
         <a href="/admin/dashboard" class="<%= activePage === 'dashboard' ? 'active' : '' %>">
             <i class="fa-solid fa-house"></i>
             <span class="admin-link-text">Dashboard</span>
@@ -50,14 +48,35 @@
             <i class="fa-solid fa-calendar-days"></i>
             <span class="admin-link-text">Schedules</span>
         </a>
+
+        <a href="/admin/reports" class="<%= activePage === 'reports' ? 'active' : '' %>">
+            <i class="fa-solid fa-chart-column"></i>
+            <span class="admin-link-text">Reports</span>
+        </a>
+
+        <a href="/admin/notifications" class="<%= activePage === 'notifications' ? 'active' : '' %>">
+            <i class="fa-solid fa-bell"></i>
+            <span class="admin-link-text">Notifications</span>
+            <span class="ui-notification-badge js-notification-badge"></span>
+        </a>
     </nav>
 
-    <p class="admin-settings">Settings</p>
+    <div class="shell-sidebar-footer">
+        <p class="shell-settings-label">Settings</p>
 
-    <form action="/logout" method="POST">
-        <button class="admin-logout-btn" type="submit">
-            <i class="fa-solid fa-arrow-right-from-bracket"></i>
-            <span class="admin-logout-text">Log Out</span>
-        </button>
-    </form>
+        <a
+            href="/admin/change-password"
+            class="shell-footer-link <%= activePage === 'change-password' ? 'active' : '' %>"
+        >
+            <i class="fa-solid fa-key"></i>
+            <span class="admin-link-text">Change Password</span>
+        </a>
+
+        <form action="/logout" method="POST" class="shell-logout-form">
+            <button class="admin-logout-btn" type="submit">
+                <i class="fa-solid fa-arrow-right-from-bracket"></i>
+                <span class="admin-logout-text">Log Out</span>
+            </button>
+        </form>
+    </div>
 </aside>

@@ -7,6 +7,9 @@
 
     <link rel="stylesheet" href="/css/adminTheme.css">
 
+    <link rel="stylesheet" href="/css/uiShell.css">
+    <link rel="stylesheet" href="/css/finalUiFix.css">
+
     <link
         rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
@@ -81,7 +84,7 @@
                         name="radius"
                         placeholder="100"
                         value="100"
-                        min="10"
+                        min="1"
                         max="10000"
                         required
                     >
@@ -110,6 +113,18 @@
                     >
                 </div>
 
+                <form
+                    action="/admin/classrooms/delete-all"
+                    method="POST"
+                    class="admin-toolbar-action"
+                    onsubmit="return confirmAdminDelete('Delete all classrooms? Active sessions will be skipped and attendance history will be preserved.')"
+                >
+                    <button class="admin-secondary-btn danger" type="submit">
+                        <i class="fa-solid fa-trash"></i>
+                        Delete All
+                    </button>
+                </form>
+
                 <span class="admin-count-pill">
                     <%= classrooms.length %> Classrooms
                 </span>
@@ -125,7 +140,7 @@
 
                 <% classrooms.forEach(function(room) { %>
 
-                    <article class="admin-item-card" data-search-group="classrooms">
+                    <article class="admin-item-card admin-entity-card admin-classroom-card" data-search-group="classrooms">
 
                         <div class="admin-item-top">
                             <div class="admin-item-icon">
@@ -203,7 +218,7 @@
                                         type="number"
                                         name="radius"
                                         value="<%= room.radius %>"
-                                        min="10"
+                                        min="1"
                                         max="10000"
                                         required
                                     >
@@ -228,7 +243,7 @@
 </div>
 
 <script src="/js/adminSearch.js"></script>
-<script src="/js/adminSidebarToggle.js"></script>
 <script src="/js/adminValidation.js"></script>
+<script src="/js/uiShell.js"></script>
 </body>
 </html>

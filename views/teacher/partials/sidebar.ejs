@@ -1,0 +1,64 @@
+<%
+    const teacherFirstName =
+        teacher && teacher.fullName
+            ? teacher.fullName.split(" ")[0]
+            : "Teacher";
+%>
+
+<aside class="teacher-sidebar">
+    <a href="/teacher/dashboard" class="brand-box">
+        <span class="brand-box-icon">
+            <i class="fa-solid fa-clipboard-check"></i>
+        </span>
+        <span class="brand-box-text shell-text">Attendify</span>
+    </a>
+
+    <div class="teacher-greeting">
+        <h2>Hi <%= teacherFirstName %>!</h2>
+        <p>Teacher Panel</p>
+    </div>
+
+    <nav class="sidebar-menu shell-sidebar-nav">
+        <a href="/teacher/dashboard" class="menu-link <%= activePage === 'dashboard' ? 'active' : '' %>">
+            <i class="fa-solid fa-gauge"></i>
+            <span>Dashboard</span>
+        </a>
+
+        <a href="/teacher/dashboard#schedule-section" class="menu-link <%= activePage === 'schedule' ? 'active' : '' %>">
+            <i class="fa-solid fa-calendar-days"></i>
+            <span>Schedule</span>
+        </a>
+
+        <a href="/teacher/dashboard#attendance-section" class="menu-link <%= activePage === 'attendance' ? 'active' : '' %>">
+            <i class="fa-solid fa-user-check"></i>
+            <span>Attendance</span>
+        </a>
+
+        <a href="/teacher/manual-attendance" class="menu-link <%= activePage === 'manual-attendance' ? 'active' : '' %>">
+            <i class="fa-solid fa-clipboard-list"></i>
+            <span>Manual Attendance</span>
+        </a>
+
+        <a href="/teacher/reports" class="menu-link <%= activePage === 'reports' ? 'active' : '' %>">
+            <i class="fa-solid fa-chart-line"></i>
+            <span>Reports</span>
+        </a>
+
+        <a href="/teacher/notifications" class="menu-link <%= activePage === 'notifications' ? 'active' : '' %>">
+            <i class="fa-solid fa-bell"></i>
+            <span>Notifications</span>
+            <span class="ui-notification-badge js-notification-badge"></span>
+        </a>
+    </nav>
+
+    <div class="shell-sidebar-footer">
+        <p class="shell-settings-label">Settings</p>
+
+        <form action="/logout" method="POST" class="shell-logout-form">
+            <button class="logout-btn" type="submit">
+                <i class="fa-solid fa-arrow-right-from-bracket"></i>
+                <span>Log Out</span>
+            </button>
+        </form>
+    </div>
+</aside>

@@ -7,6 +7,9 @@
 
     <link rel="stylesheet" href="/css/platformAdmin.css">
 
+    <link rel="stylesheet" href="/css/uiShell.css">
+    <link rel="stylesheet" href="/css/finalUiFix.css">
+
     <link
         rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
@@ -16,45 +19,19 @@
 
 <div class="platform-layout">
 
-    <aside class="platform-sidebar">
-        <div class="platform-logo">
-            <i class="fa-solid fa-shield-halved"></i>
-            <div>
-                <h2>Attendify</h2>
-                <p>Super Admin</p>
-            </div>
-        </div>
-
-        <nav>
-            <a class="<%= activePage === 'dashboard' ? 'active' : '' %>" href="/platform-admin/dashboard">
-                <i class="fa-solid fa-chart-line"></i>
-                Dashboard
-            </a>
-
-            <a class="<%= activePage === 'requests' ? 'active' : '' %>" href="/platform-admin/requests?status=PENDING">
-                <i class="fa-solid fa-building-circle-check"></i>
-                College Requests
-            </a>
-        </nav>
-
-        <form action="/platform-admin/logout" method="POST">
-            <button class="platform-logout-btn" type="submit">
-                <i class="fa-solid fa-right-from-bracket"></i>
-                Logout
-            </button>
-        </form>
-    </aside>
+    <%- include("partials/sidebar", { activePage }) %>
 
     <main class="platform-main">
 
         <header class="platform-header">
             <div>
-                <span>Platform Admin</span>
+                <span class="platform-kicker">Platform Admin</span>
                 <h1>Dashboard</h1>
                 <p>Review college registration activity.</p>
             </div>
 
             <a href="/platform-admin/requests?status=PENDING" class="platform-primary-link">
+                <i class="fa-solid fa-hourglass-half" aria-hidden="true"></i>
                 Pending Requests
             </a>
         </header>
@@ -64,6 +41,47 @@
                 <strong><%= flash.title %></strong>
                 <p><%= flash.message %></p>
             </div>
+        <% } %>
+
+        <% if (resetAdminPasswordResult) { %>
+            <section class="platform-admin-temp-password-card">
+                <div>
+                    <h3>
+                        <i class="fa-solid fa-key"></i>
+                        College Admin Password Reset
+                    </h3>
+
+                    <p>
+                        New temporary password generated for
+                        <strong><%= resetAdminPasswordResult.adminName %></strong>
+                        at
+                        <strong><%= resetAdminPasswordResult.collegeName %></strong>.
+                    </p>
+
+                    <p>
+                        Admin Email:
+                        <strong><%= resetAdminPasswordResult.adminEmail %></strong>
+                    </p>
+
+                    <div class="platform-admin-password-box">
+                        <span id="temporaryAdminPassword">
+                            <%= resetAdminPasswordResult.temporaryPassword %>
+                        </span>
+
+                        <button
+                            type="button"
+                            onclick="navigator.clipboard.writeText(document.getElementById('temporaryAdminPassword').innerText.trim())"
+                        >
+                            <i class="fa-solid fa-copy"></i>
+                            Copy
+                        </button>
+                    </div>
+
+                    <small>
+                        Show this password to the college admin only once. Ask them to login and change it from Admin Panel → Change Password.
+                    </small>
+                </div>
+            </section>
         <% } %>
 
         <section class="platform-stats-grid">
@@ -125,9 +143,25 @@
                             </p>
                         </div>
 
-                        <span class="platform-status <%= request.status.toLowerCase() %>">
-                            <%= request.status %>
-                        </span>
+                        <div class="platform-request-actions">
+                            <span class="platform-status <%= request.status.toLowerCase() %>">
+                                <%= request.status %>
+                            </span>
+
+                            <% if (request.status && request.status.toUpperCase() === "APPROVED") { %>
+                                <form
+                                    action="/platform-admin/requests/<%= request._id %>/reset-admin-password"
+                                    method="POST"
+                                    onsubmit="return confirm('Reset college admin password for <%= request.collegeName %>? A new temporary password will be generated.')"
+                                >
+                                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                                    <button class="platform-admin-warning-btn" type="submit">
+                                        <i class="fa-solid fa-key"></i>
+                                        Reset Admin Password
+                                    </button>
+                                </form>
+                            <% } %>
+                        </div>
                     </article>
 
                 <% }) %>
@@ -139,5 +173,6 @@
 
 </div>
 
+<script src="/js/uiShell.js"></script>
 </body>
 </html>

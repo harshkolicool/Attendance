@@ -1,3 +1,5 @@
+require("dotenv").config();
+
 const mongoose = require("mongoose");
 const connectDB = require("../config/db");
 const PlatformAdmin = require("../models/platformAdminSchema");
@@ -6,28 +8,33 @@ async function initializePlatformAdmin() {
     try {
         await connectDB();
 
+        const platformAdminName = process.env.SEED_PLATFORM_ADMIN_NAME || "Platform Super Admin";
+        const platformAdminEmail = process.env.SEED_PLATFORM_ADMIN_EMAIL || "superadmin@attendify.com";
+        const platformAdminPassword = process.env.SEED_PLATFORM_ADMIN_PASSWORD;
+
+        if (!platformAdminPassword) {
+            throw new Error("SEED_PLATFORM_ADMIN_PASSWORD is missing in .env file");
+        }
+
         const existingPlatformAdmin = await PlatformAdmin.findOne({
-            email: "superadmin@attendify.com"
+            email: platformAdminEmail
         });
 
         if (existingPlatformAdmin) {
-            console.log("Platform admin already exists");
-            console.log("Email: superadmin@attendify.com");
+            console.log("Platform admin already exists:", platformAdminEmail);
             await mongoose.connection.close();
             return;
         }
 
         await PlatformAdmin.create({
-            fullName: "Platform Super Admin",
-            email: "superadmin@attendify.com",
-            password: "super123",
+            fullName: platformAdminName,
+            email: platformAdminEmail,
+            password: platformAdminPassword,
             role: "SUPER_ADMIN",
             isBlocked: false
         });
 
-        console.log("Platform admin created successfully");
-        console.log("Email: superadmin@attendify.com");
-        console.log("Password: super123");
+        console.log("Platform admin created successfully:", platformAdminEmail);
 
         await mongoose.connection.close();
 

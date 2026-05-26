@@ -9,7 +9,7 @@
     --home-blue: #2563eb;
     --home-blue-dark: #1d4ed8;
     --home-green: #16a34a;
-    --home-purple: #7c3aed;
+    --home-purple: #0ea5e9;
     --home-orange: #f97316;
     --home-red: #dc2626;
     --home-shadow: 0 24px 70px rgba(15, 23, 42, 0.10);
@@ -46,7 +46,7 @@ button {
     overflow-x: hidden;
     background:
         radial-gradient(circle at 10% 0%, rgba(37, 99, 235, 0.13), transparent 32%),
-        radial-gradient(circle at 90% 5%, rgba(124, 58, 237, 0.12), transparent 30%),
+        radial-gradient(circle at 90% 5%, rgba(14, 165, 233, 0.14), transparent 30%),
         linear-gradient(180deg, #f8fbff 0%, #eef3fb 100%);
 }
 
@@ -160,7 +160,7 @@ button {
 .circle-two {
     width: 220px;
     height: 220px;
-    background: rgba(124, 58, 237, 0.12);
+    background: rgba(14, 165, 233, 0.14);
     right: -80px;
     bottom: 80px;
 }
@@ -947,5 +947,25 @@ button {
 
     .footer-links {
         justify-content: flex-start;
+    }
+}
+
+@media (max-width: 460px) {
+    .hero-content h1 {
+        font-size: 34px;
+        line-height: 1.12;
+    }
+
+    .hero-section,
+    .role-section,
+    .features-section,
+    .workflow-section,
+    .stats-section,
+    .cta-section {
+        margin-top: 22px;
+    }
+
+    .cta-card {
+        padding: 20px;
     }
 }

@@ -23,15 +23,21 @@ function showErrors(form, errors) {
         form.insertBefore(errorBox, form.firstChild);
     }
 
-    let html = "<strong>Please fix these errors:</strong><ul>";
+    errorBox.textContent = "";
+
+    const strong = document.createElement("strong");
+    strong.textContent = "Please fix these errors:";
+
+    const list = document.createElement("ul");
 
     errors.forEach(function (error) {
-        html += "<li>" + error + "</li>";
+        const item = document.createElement("li");
+        item.textContent = error;
+        list.appendChild(item);
     });
 
-    html += "</ul>";
-
-    errorBox.innerHTML = html;
+    errorBox.appendChild(strong);
+    errorBox.appendChild(list);
 }
 
 function clearErrors(form) {

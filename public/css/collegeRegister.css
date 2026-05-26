@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800;900&family=Sora:wght@600;700;800&display=swap");
+
 * {
     margin: 0;
     padding: 0;
@@ -5,9 +7,17 @@
 }
 
 body {
-    font-family: Inter, Arial, sans-serif;
+    font-family: "Manrope", "Segoe UI", "Trebuchet MS", sans-serif;
     background: #f5f7fb;
     color: #0f172a;
+}
+
+h1,
+h2,
+h3,
+h4 {
+    font-family: "Sora", "Manrope", "Segoe UI", sans-serif;
+    letter-spacing: -0.02em;
 }
 
 .register-page {

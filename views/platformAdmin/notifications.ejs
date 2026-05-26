@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notifications | Super Admin</title>
+
+    <link rel="stylesheet" href="/css/platformAdmin.css">
+    <link rel="stylesheet" href="/css/uiShell.css">
+    <link rel="stylesheet" href="/css/finalUiFix.css">
+
+    <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+    >
+</head>
+<body>
+
+<div class="platform-layout">
+    <%- include("partials/sidebar", { activePage }) %>
+
+    <main class="platform-main">
+        <header class="platform-header">
+            <div>
+                <span class="platform-kicker">Platform Admin</span>
+                <h1>Notifications</h1>
+                <p>Track platform-wide events and onboarding activity.</p>
+            </div>
+        </header>
+
+        <section class="platform-card">
+            <div class="platform-card-head">
+                <div>
+                    <h3>Inbox</h3>
+                    <p>Recent system notifications.</p>
+                </div>
+
+                <div class="notification-head-actions">
+                    <span class="platform-chip">
+                        <i class="fa-solid fa-bell"></i>
+                        <%= unreadCount %> Unread
+                    </span>
+
+                    <form action="/platform-admin/notifications/mark-all-read" method="POST">
+                        <button class="platform-secondary-btn" type="submit">
+                            <i class="fa-solid fa-check-double"></i>
+                            Mark All Read
+                        </button>
+                    </form>
+
+                    <form
+                        action="/platform-admin/notifications/clear-all"
+                        method="POST"
+                        onsubmit="return confirm('Clear all notifications? This cannot be undone.')"
+                    >
+                        <button class="platform-secondary-btn notification-delete-btn" type="submit">
+                            <i class="fa-solid fa-trash"></i>
+                            Clear All
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <% if (!notifications || notifications.length === 0) { %>
+                <div class="platform-empty">
+                    No notifications yet.
+                </div>
+            <% } else { %>
+                <div class="notification-list">
+                    <% notifications.forEach(function(notification) { %>
+                        <article class="notification-card <%= notification.isRead ? 'read' : 'unread' %>">
+                            <div class="notification-top">
+                                <h4><%= notification.title %></h4>
+                                <span><%= new Date(notification.createdAt).toLocaleString() %></span>
+                            </div>
+
+                            <p><%= notification.message %></p>
+
+                            <div class="notification-meta">
+                                <span class="platform-chip"><%= notification.category || "GENERAL" %></span>
+
+                                <% if (notification.link) { %>
+                                    <a class="platform-secondary-btn notification-open-link" href="<%= notification.link %>">
+                                        <i class="fa-solid fa-arrow-up-right-from-square"></i>
+                                        Open
+                                    </a>
+                                <% } %>
+
+                                <% if (!notification.isRead) { %>
+                                    <form action="/platform-admin/notifications/<%= notification.id %>/read" method="POST">
+                                        <button class="platform-primary-btn notification-action-btn" type="submit">
+                                            <i class="fa-solid fa-check"></i>
+                                            Mark Read
+                                        </button>
+                                    </form>
+                                <% } %>
+
+                                <form
+                                    action="/platform-admin/notifications/<%= notification.id %>/delete"
+                                    method="POST"
+                                    onsubmit="return confirm('Delete this notification?')"
+                                >
+                                    <button class="platform-secondary-btn notification-delete-btn notification-action-btn" type="submit">
+                                        <i class="fa-solid fa-trash"></i>
+                                        Delete
+                                    </button>
+                                </form>
+                            </div>
+                        </article>
+                    <% }) %>
+                </div>
+            <% } %>
+        </section>
+    </main>
+</div>
+
+<script src="/js/uiShell.js"></script>
+</body>
+</html>

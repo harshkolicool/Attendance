@@ -7,6 +7,9 @@
 
     <link rel="stylesheet" href="/css/adminTheme.css">
 
+    <link rel="stylesheet" href="/css/uiShell.css">
+    <link rel="stylesheet" href="/css/finalUiFix.css">
+
     <link
         rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
@@ -113,6 +116,18 @@
                     >
                 </div>
 
+                <form
+                    action="/admin/teachers/delete-all"
+                    method="POST"
+                    class="admin-toolbar-action"
+                    onsubmit="return confirmAdminDelete('Delete all teachers? Active sessions will be skipped and attendance history will be preserved.')"
+                >
+                    <button class="admin-secondary-btn danger" type="submit">
+                        <i class="fa-solid fa-trash"></i>
+                        Delete All
+                    </button>
+                </form>
+
                 <span class="admin-count-pill">
                     <%= teachers.length %> Teachers
                 </span>
@@ -128,7 +143,7 @@
 
                 <% teachers.forEach(function(teacher) { %>
 
-                    <article class="admin-item-card" data-search-group="teachers">
+                    <article class="admin-item-card admin-entity-card admin-teacher-card" data-search-group="teachers">
 
                         <div class="admin-item-top">
                             <div class="admin-item-icon">
@@ -276,7 +291,7 @@
 </div>
 
 <script src="/js/adminSearch.js"></script>
-<script src="/js/adminSidebarToggle.js"></script>
 <script src="/js/adminValidation.js"></script>
+<script src="/js/uiShell.js"></script>
 </body>
 </html>

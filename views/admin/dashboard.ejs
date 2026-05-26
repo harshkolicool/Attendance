@@ -4,73 +4,120 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Dashboard | Attendify</title>
-    <link rel="stylesheet" href="/css/admin.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <link rel="stylesheet" href="/css/adminTheme.css">
 
-<link
-    rel="stylesheet"
-    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
->
+    <link rel="stylesheet" href="/css/uiShell.css">
+    <link rel="stylesheet" href="/css/finalUiFix.css">
 </head>
 <body>
 
 <div class="admin-layout">
-    <%- include("partials/sidebar") %>
+    <%- include("partials/sidebar", { activePage: "dashboard" }) %>
 
     <main class="admin-main">
-        <header class="admin-header">
-            <div>
+        <header class="admin-header admin-page-header">
+            <div class="admin-header-copy">
+                <span class="admin-kicker">College Admin</span>
                 <h1>Dashboard</h1>
                 <% if (college) { %>
-                    <p><%= college.collegeName %> (<%= college.collegeCode %>)</p>
+                    <p><%= college.collegeName %> · <%= college.collegeCode %></p>
                 <% } %>
             </div>
-            <p class="admin-user">Hi <%= admin.fullName %></p>
+
+            <div class="admin-user-pill">
+                <span class="admin-user-avatar" aria-hidden="true">
+                    <%= admin.fullName ? admin.fullName.trim().charAt(0).toUpperCase() : "A" %>
+                </span>
+                <div class="admin-user-meta">
+                    <span class="admin-user-label">Signed in as</span>
+                    <strong><%= admin.fullName %></strong>
+                </div>
+            </div>
         </header>
 
         <% if (message) { %>
             <div class="alert success"><%= message %></div>
         <% } %>
 
-        <section class="stat-grid">
-            <div class="stat-card">
-                <span>Class Groups</span>
+        <section class="admin-stat-grid" aria-label="Overview statistics">
+            <article class="admin-stat-card">
+                <div class="admin-stat-card-top">
+                    <span>Class Groups</span>
+                    <div class="admin-stat-icon blue"><i class="fa-solid fa-layer-group"></i></div>
+                </div>
                 <h3><%= counts.classGroups %></h3>
-                <a href="/admin/class-groups">Manage</a>
-            </div>
-            <div class="stat-card">
-                <span>Classrooms</span>
+                <a href="/admin/class-groups" class="admin-stat-action">Manage <i class="fa-solid fa-arrow-right"></i></a>
+            </article>
+
+            <article class="admin-stat-card">
+                <div class="admin-stat-card-top">
+                    <span>Classrooms</span>
+                    <div class="admin-stat-icon cyan"><i class="fa-solid fa-door-open"></i></div>
+                </div>
                 <h3><%= counts.classrooms %></h3>
-                <a href="/admin/classrooms">Manage</a>
-            </div>
-            <div class="stat-card">
-                <span>Subjects</span>
+                <a href="/admin/classrooms" class="admin-stat-action">Manage <i class="fa-solid fa-arrow-right"></i></a>
+            </article>
+
+            <article class="admin-stat-card">
+                <div class="admin-stat-card-top">
+                    <span>Subjects</span>
+                    <div class="admin-stat-icon purple"><i class="fa-solid fa-book"></i></div>
+                </div>
                 <h3><%= counts.subjects %></h3>
-                <a href="/admin/subjects">Manage</a>
-            </div>
-            <div class="stat-card">
-                <span>Teachers</span>
+                <a href="/admin/subjects" class="admin-stat-action">Manage <i class="fa-solid fa-arrow-right"></i></a>
+            </article>
+
+            <article class="admin-stat-card">
+                <div class="admin-stat-card-top">
+                    <span>Teachers</span>
+                    <div class="admin-stat-icon indigo"><i class="fa-solid fa-chalkboard-user"></i></div>
+                </div>
                 <h3><%= counts.teachers %></h3>
-                <a href="/admin/teachers">Manage</a>
-            </div>
-            <div class="stat-card">
-                <span>Students</span>
+                <a href="/admin/teachers" class="admin-stat-action">Manage <i class="fa-solid fa-arrow-right"></i></a>
+            </article>
+
+            <article class="admin-stat-card">
+                <div class="admin-stat-card-top">
+                    <span>Students</span>
+                    <div class="admin-stat-icon green"><i class="fa-solid fa-user-graduate"></i></div>
+                </div>
                 <h3><%= counts.students %></h3>
-                <a href="/admin/students">Manage</a>
-            </div>
-            <div class="stat-card">
-                <span>Schedules</span>
+                <a href="/admin/students" class="admin-stat-action">Manage <i class="fa-solid fa-arrow-right"></i></a>
+            </article>
+
+            <article class="admin-stat-card">
+                <div class="admin-stat-card-top">
+                    <span>Schedules</span>
+                    <div class="admin-stat-icon orange"><i class="fa-solid fa-calendar-days"></i></div>
+                </div>
                 <h3><%= counts.schedules %></h3>
-                <a href="/admin/schedules">Manage</a>
-            </div>
+                <a href="/admin/schedules" class="admin-stat-action">Manage <i class="fa-solid fa-arrow-right"></i></a>
+            </article>
+
+            <article class="admin-stat-card admin-stat-card-featured">
+                <div class="admin-stat-card-top">
+                    <span>Subject-wise Reports</span>
+                    <div class="admin-stat-icon rose"><i class="fa-solid fa-chart-pie"></i></div>
+                </div>
+                <h3 class="admin-stat-icon-value"><i class="fa-solid fa-chart-pie"></i></h3>
+                <a href="/admin/reports" class="admin-stat-action">View Reports <i class="fa-solid fa-arrow-right"></i></a>
+            </article>
         </section>
 
-        <section class="info-panel">
-            <h2>Setup order for a new college</h2>
+        <section class="info-panel admin-setup-panel">
+            <div class="admin-setup-panel-head">
+                <div class="admin-setup-panel-icon">
+                    <i class="fa-solid fa-list-check"></i>
+                </div>
+                <div>
+                    <h2>Setup order for a new college</h2>
+                    <p>Follow these steps to get attendance running for your institution.</p>
+                </div>
+            </div>
             <ol>
                 <li>Create <strong>Class Groups</strong></li>
-                <li>Add <strong>Classrooms</strong> with GPS and radius</li>
+                <li>Add <strong>Classrooms</strong> with allowed attendance radius</li>
                 <li>Add <strong>Subjects</strong> and assign teachers</li>
                 <li>Add <strong>Teachers</strong> and <strong>Students</strong></li>
                 <li>Create weekly <strong>Schedules</strong></li>
@@ -79,7 +126,7 @@
     </main>
 </div>
 
-</body>
 <script src="/js/adminValidation.js"></script>
-<script src="/js/adminSidebarToggle.js"></script>
+<script src="/js/uiShell.js"></script>
+</body>
 </html>

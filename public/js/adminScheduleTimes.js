@@ -290,10 +290,20 @@
             form.insertBefore(errorBox, form.firstChild);
         }
 
-        errorBox.innerHTML =
-            "<strong>Please fix this error:</strong><ul><li>" +
-            message +
-            "</li></ul>";
+        errorBox.textContent = "";
+
+        const strong = document.createElement("strong");
+        strong.textContent = "Please fix this error:";
+
+        const list = document.createElement("ul");
+
+        const item = document.createElement("li");
+        item.textContent = message;
+
+        list.appendChild(item);
+
+        errorBox.appendChild(strong);
+        errorBox.appendChild(list);
     }
 
     function clearScheduleTimeError(form) {

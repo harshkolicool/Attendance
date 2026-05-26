@@ -1,6 +1,40 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
 
+function isBcryptHash(value) {
+    return typeof value === "string" && /^\$2[aby]\$\d{2}\$/.test(value);
+}
+
+async function hashPasswordIfNeeded(password) {
+    if (!password || isBcryptHash(password)) {
+        return password;
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    return await bcrypt.hash(password, salt);
+}
+
+async function hashPasswordInUpdate() {
+    const update = this.getUpdate();
+
+    if (!update || Array.isArray(update)) {
+        return;
+    }
+
+    if (
+        update.$set &&
+        Object.prototype.hasOwnProperty.call(update.$set, "password")
+    ) {
+        update.$set.password = await hashPasswordIfNeeded(update.$set.password);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(update, "password")) {
+        update.password = await hashPasswordIfNeeded(update.password);
+    }
+
+    this.setUpdate(update);
+}
+
 const teacherSchema = new mongoose.Schema({
 
     fullName: {
@@ -67,6 +101,15 @@ const teacherSchema = new mongoose.Schema({
         default: false
     },
 
+    isDeleted: {
+        type: Boolean,
+        default: false
+    },
+
+    deletedAt: {
+        type: Date
+    },
+
     lastLogin: {
         type: Date
     }
@@ -81,17 +124,29 @@ teacherSchema.index(
 );
 
 teacherSchema.pre("save", async function () {
+    if (!this.isModified("password")) {
+        return;
+    }
 
-    if (!this.isModified("password")) return;
-
-    const salt = await bcrypt.genSalt(10);
-    this.password = await bcrypt.hash(this.password, salt);
+    this.password = await hashPasswordIfNeeded(this.password);
 });
 
+teacherSchema.pre("updateOne", hashPasswordInUpdate);
+teacherSchema.pre("findOneAndUpdate", hashPasswordInUpdate);
+teacherSchema.pre("updateMany", hashPasswordInUpdate);
+
 teacherSchema.methods.comparePassword = async function (enteredPassword) {
-    return await bcrypt.compare(enteredPassword, this.password);
+    if (!this.password) {
+        return false;
+    }
+
+    if (isBcryptHash(this.password)) {
+        return await bcrypt.compare(enteredPassword, this.password);
+    }
+
+    return enteredPassword === this.password;
 };
 
-const Teacher = mongoose.model("Teacher", teacherSchema);
+const Teacher = mongoose.models.Teacher || mongoose.model("Teacher", teacherSchema);
 
 module.exports = Teacher;

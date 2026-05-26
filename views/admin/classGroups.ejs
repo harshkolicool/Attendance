@@ -7,6 +7,9 @@
 
     <link rel="stylesheet" href="/css/adminTheme.css">
 
+    <link rel="stylesheet" href="/css/uiShell.css">
+    <link rel="stylesheet" href="/css/finalUiFix.css">
+
     <link
         rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
@@ -109,6 +112,18 @@
                     >
                 </div>
 
+                <form
+                    action="/admin/class-groups/delete-all"
+                    method="POST"
+                    class="admin-toolbar-action"
+                    onsubmit="return confirmAdminDelete('Delete all class groups? Linked schedules will be removed and history-safe groups will be archived.')"
+                >
+                    <button class="admin-secondary-btn danger" type="submit">
+                        <i class="fa-solid fa-trash"></i>
+                        Delete All
+                    </button>
+                </form>
+
                 <span class="admin-count-pill">
                     <%= classGroups.length %> Class Groups
                 </span>
@@ -124,7 +139,7 @@
 
                 <% classGroups.forEach(function(item) { %>
 
-                    <article class="admin-item-card" data-search-group="class-groups">
+                    <article class="admin-item-card admin-entity-card admin-class-group-card" data-search-group="class-groups">
 
                         <div class="admin-item-top">
                             <div class="admin-item-icon">
@@ -134,7 +149,7 @@
                             <form
                                 action="/admin/class-groups/<%= item._id %>/delete"
                                 method="POST"
-                                onsubmit="return confirmAdminDelete('Delete this class group?')"
+                                onsubmit="return confirmAdminDelete('Delete this class group? Future schedules will be removed. Existing attendance history stays safe.')"
                             >
                                 <button class="admin-delete-btn" type="submit">
                                     Delete
@@ -231,7 +246,7 @@
 </div>
 
 <script src="/js/adminSearch.js"></script>
-<script src="/js/adminSidebarToggle.js"></script>
 <script src="/js/adminValidation.js"></script>
+<script src="/js/uiShell.js"></script>
 </body>
 </html>

@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teacher Reports | Attendify</title>
+
+    <link rel="stylesheet" href="/css/teacherDashboard.css">
+
+    <link rel="stylesheet" href="/css/uiShell.css">
+    <link rel="stylesheet" href="/css/finalUiFix.css">
+
+    <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+    >
+</head>
+<body>
+
+<div class="teacher-page">
+
+    <%- include("teacher/partials/sidebar", { activePage: activePage || "reports", teacher }) %>
+
+    <main class="teacher-main teacher-reports-page">
+
+        <header class="teacher-header">
+            <div>
+                <span class="teacher-kicker">Teacher Panel</span>
+                <h1>Attendance Reports</h1>
+                <p>View your class-wise, subject-wise and student-wise attendance records.</p>
+            </div>
+        </header>
+
+        <%
+            const exportQuery = [
+                "fromDate=" + encodeURIComponent(filters.fromDate),
+                "toDate=" + encodeURIComponent(filters.toDate),
+                "classGroupId=" + encodeURIComponent(filters.classGroupId),
+                "subjectId=" + encodeURIComponent(filters.subjectId),
+                "status=" + encodeURIComponent(filters.status)
+            ].join("&");
+
+            const selectedClassGroup = (classGroups || []).find(function(group) {
+                return filters.classGroupId && filters.classGroupId !== "all" && group._id.toString() === filters.classGroupId;
+            });
+
+            const selectedSubject = (subjects || []).find(function(subject) {
+                return filters.subjectId && filters.subjectId !== "all" && subject._id.toString() === filters.subjectId;
+            });
+
+            const filterFlags = [
+                filters.classGroupId && filters.classGroupId !== "all",
+                filters.subjectId && filters.subjectId !== "all",
+                filters.status && filters.status !== "all"
+            ];
+
+            const activeFilterCount = filterFlags.filter(function(flag) {
+                return Boolean(flag);
+            }).length;
+
+            const detailedRecordGroupMap = {};
+
+            (attendanceRecords || []).forEach(function(record) {
+                const subjectName = record.subject ? record.subject.subjectName : "Subject Missing";
+                const subjectCode =
+                    record.subject && record.subject.subjectCode
+                        ? record.subject.subjectCode
+                        : "";
+                const className = record.classGroup ? record.classGroup.name : "Class Missing";
+                const groupKey = subjectName + "||" + className;
+
+                if (!detailedRecordGroupMap[groupKey]) {
+                    detailedRecordGroupMap[groupKey] = {
+                        key: groupKey,
+                        subjectName: subjectName,
+                        subjectCode: subjectCode,
+                        className: className,
+                        present: 0,
+                        absent: 0,
+                        records: []
+                    };
+                }
+
+                if (record.status === "PRESENT") {
+                    detailedRecordGroupMap[groupKey].present += 1;
+                }
+
+                if (record.status === "ABSENT") {
+                    detailedRecordGroupMap[groupKey].absent += 1;
+                }
+
+                detailedRecordGroupMap[groupKey].records.push(record);
+            });
+
+            const detailedRecordGroups = Object.values(detailedRecordGroupMap).sort(function(first, second) {
+                const subjectCompare = first.subjectName.localeCompare(second.subjectName);
+
+                if (subjectCompare !== 0) {
+                    return subjectCompare;
+                }
+
+                return first.className.localeCompare(second.className);
+            });
+
+            detailedRecordGroups.forEach(function(group, index) {
+                group.filterId = "record-group-" + String(index + 1);
+
+                group.records.sort(function(firstRecord, secondRecord) {
+                    const firstSession = firstRecord.attendanceSession;
+                    const secondSession = secondRecord.attendanceSession;
+
+                    const firstDate = firstSession && firstSession.startTime
+                        ? new Date(firstSession.startTime)
+                        : new Date(firstRecord.createdAt);
+                    const secondDate = secondSession && secondSession.startTime
+                        ? new Date(secondSession.startTime)
+                        : new Date(secondRecord.createdAt);
+
+                    return secondDate.getTime() - firstDate.getTime();
+                });
+            });
+
+            const suspiciousAttemptGroupMap = {};
+
+            (suspiciousAttempts || []).forEach(function(attempt) {
+                const reasonCode = attempt.reasonCode || "UNKNOWN";
+                const reasonMessage = attempt.reasonMessage || "Suspicious attendance attempt.";
+
+                if (!suspiciousAttemptGroupMap[reasonCode]) {
+                    suspiciousAttemptGroupMap[reasonCode] = {
+                        reasonCode: reasonCode,
+                        reasonMessage: reasonMessage,
+                        attempts: []
+                    };
+                }
+
+                suspiciousAttemptGroupMap[reasonCode].attempts.push(attempt);
+            });
+
+            const suspiciousAttemptGroups = Object.values(suspiciousAttemptGroupMap).sort(function(first, second) {
+                return second.attempts.length - first.attempts.length;
+            });
+
+            suspiciousAttemptGroups.forEach(function(group, index) {
+                group.filterId = "attempt-group-" + String(index + 1);
+
+                group.attempts.sort(function(firstAttempt, secondAttempt) {
+                    return new Date(secondAttempt.createdAt).getTime() - new Date(firstAttempt.createdAt).getTime();
+                });
+            });
+        %>
+
+        <section class="teacher-card teacher-report-overview-card">
+            <div class="teacher-report-overview-top">
+                <div>
+                    <h3>Report Window</h3>
+                    <p><%= filters.fromDate %> to <%= filters.toDate %></p>
+                </div>
+
+                <span class="teacher-count-pill">
+                    <%= activeFilterCount %> Active Filters
+                </span>
+            </div>
+
+            <div class="teacher-report-overview-chips">
+                <span class="teacher-report-chip">
+                    <i class="fa-solid fa-users-rectangle"></i>
+                    <%= selectedClassGroup ? selectedClassGroup.name : "All Class Groups" %>
+                </span>
+
+                <span class="teacher-report-chip">
+                    <i class="fa-solid fa-book"></i>
+                    <% if (selectedSubject) { %>
+                        <%= selectedSubject.subjectName %>
+                    <% } else { %>
+                        All Subjects
+                    <% } %>
+                </span>
+
+                <span class="teacher-report-chip">
+                    <i class="fa-solid fa-list-check"></i>
+                    <%= filters.status === "all" ? "All Status" : filters.status %>
+                </span>
+            </div>
+        </section>
+
+        <section class="teacher-card teacher-report-nav-card" role="tablist" aria-label="Attendance report sections">
+            <button type="button" class="teacher-report-nav-link is-active" data-report-tab="subject-summary">
+                <i class="fa-solid fa-book-open"></i>
+                Subject Summary
+            </button>
+            <button type="button" class="teacher-report-nav-link" data-report-tab="class-summary">
+                <i class="fa-solid fa-users"></i>
+                Class Summary
+            </button>
+            <button type="button" class="teacher-report-nav-link" data-report-tab="student-summary">
+                <i class="fa-solid fa-user-graduate"></i>
+                Student Summary
+            </button>
+            <button type="button" class="teacher-report-nav-link" data-report-tab="detailed-records">
+                <i class="fa-solid fa-table-list"></i>
+                Detailed Records
+            </button>
+            <button type="button" class="teacher-report-nav-link danger" data-report-tab="suspicious-attempts">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                Suspicious Attempts
+            </button>
+        </section>
+
+        <div class="teacher-report-control-grid">
+            <section class="teacher-card teacher-export-card">
+                <div class="teacher-export-content">
+                    <div>
+                        <h3>Export Reports</h3>
+                        <p>Download attendance and suspicious attempt files using selected filters.</p>
+                    </div>
+
+                    <div class="teacher-export-actions">
+                        <a
+                            href="/teacher/reports/export-attendance?<%= exportQuery %>"
+                            class="teacher-secondary-btn"
+                        >
+                            <i class="fa-solid fa-file-csv"></i>
+                            Export Attendance CSV
+                        </a>
+
+                        <a
+                            href="/teacher/reports/export-suspicious?<%= exportQuery %>"
+                            class="teacher-secondary-btn danger"
+                        >
+                            <i class="fa-solid fa-triangle-exclamation"></i>
+                            Export Suspicious CSV
+                        </a>
+                    </div>
+                </div>
+            </section>
+
+            <section class="teacher-card teacher-report-filter-card">
+                <div class="teacher-card-header">
+                    <div>
+                        <h3>Filter Reports</h3>
+                        <p>Select date range, class group, subject or status.</p>
+                    </div>
+                </div>
+
+                <form action="/teacher/reports" method="GET" class="teacher-report-filter-grid">
+
+                    <div class="teacher-field">
+                        <label>From Date</label>
+                        <input type="date" name="fromDate" value="<%= filters.fromDate %>" required>
+                    </div>
+
+                    <div class="teacher-field">
+                        <label>To Date</label>
+                        <input type="date" name="toDate" value="<%= filters.toDate %>" required>
+                    </div>
+
+                    <div class="teacher-field">
+                        <label>Class Group</label>
+                        <select name="classGroupId">
+                            <option value="all">All Class Groups</option>
+
+                            <% classGroups.forEach(function(group) { %>
+                                <option
+                                    value="<%= group._id %>"
+                                    <%= filters.classGroupId === group._id.toString() ? "selected" : "" %>
+                                >
+                                    <%= group.name %> - Sem <%= group.semester %> <%= group.section %>
+                                </option>
+                            <% }) %>
+                        </select>
+                    </div>
+
+                    <div class="teacher-field">
+                        <label>Subject</label>
+                        <select name="subjectId">
+                            <option value="all">All Subjects</option>
+
+                            <% subjects.forEach(function(subject) { %>
+                                <option
+                                    value="<%= subject._id %>"
+                                    <%= filters.subjectId === subject._id.toString() ? "selected" : "" %>
+                                >
+                                    <%= subject.subjectName %>
+                                    <% if (subject.subjectCode) { %>
+                                        - <%= subject.subjectCode %>
+                                    <% } %>
+                                </option>
+                            <% }) %>
+                        </select>
+                    </div>
+
+                    <div class="teacher-field">
+                        <label>Status</label>
+                        <select name="status">
+                            <option value="all" <%= filters.status === "all" ? "selected" : "" %>>All</option>
+                            <option value="PRESENT" <%= filters.status === "PRESENT" ? "selected" : "" %>>Present</option>
+                            <option value="ABSENT" <%= filters.status === "ABSENT" ? "selected" : "" %>>Absent</option>
+                        </select>
+                    </div>
+
+                    <div class="teacher-filter-actions">
+                        <button class="teacher-primary-btn" type="submit">
+                            <i class="fa-solid fa-filter"></i>
+                            Apply Filters
+                        </button>
+
+                        <a href="/teacher/reports" class="teacher-secondary-btn">
+                            <i class="fa-solid fa-rotate-left"></i>
+                            Reset
+                        </a>
+                    </div>
+
+                </form>
+            </section>
+        </div>
+
+        <section class="teacher-report-summary-grid">
+
+            <article class="teacher-report-stat blue">
+                <div>
+                    <span>Sessions</span>
+                    <strong><%= summary.totalSessions %></strong>
+                </div>
+                <i class="fa-solid fa-calendar-check"></i>
+            </article>
+
+            <article class="teacher-report-stat green">
+                <div>
+                    <span>Present</span>
+                    <strong><%= summary.totalPresent %></strong>
+                </div>
+                <i class="fa-solid fa-user-check"></i>
+            </article>
+
+            <article class="teacher-report-stat red">
+                <div>
+                    <span>Absent</span>
+                    <strong><%= summary.totalAbsent %></strong>
+                </div>
+                <i class="fa-solid fa-user-xmark"></i>
+            </article>
+
+            <article class="teacher-report-stat purple">
+                <div>
+                    <span>Attendance</span>
+                    <strong><%= summary.attendancePercentage %>%</strong>
+                </div>
+                <i class="fa-solid fa-chart-line"></i>
+            </article>
+
+            <article class="teacher-report-stat orange">
+                <div>
+                    <span>Suspicious</span>
+                    <strong><%= summary.suspiciousCount %></strong>
+                </div>
+                <i class="fa-solid fa-triangle-exclamation"></i>
+            </article>
+
+        </section>
+
+        <div class="teacher-report-panels-shell" id="teacher-report-panels">
+            <section class="teacher-card teacher-report-panel is-active" id="report-subject-summary" data-report-panel="subject-summary">
+                <div class="teacher-card-header">
+                    <div>
+                        <h3>Subject-wise Summary</h3>
+                        <p>Attendance grouped by your subjects.</p>
+                    </div>
+
+                    <span class="teacher-count-pill">
+                        <%= subjectSummary ? subjectSummary.length : 0 %> Subjects
+                    </span>
+                </div>
+
+                <% if (!subjectSummary || subjectSummary.length === 0) { %>
+                    <div class="teacher-empty">No subject report found.</div>
+                <% } else { %>
+                    <div class="teacher-table-wrap">
+                        <table class="teacher-report-table teacher-report-table-compact">
+                            <thead>
+                                <tr>
+                                    <th>Subject</th>
+                                    <th>Code</th>
+                                    <th>Total</th>
+                                    <th>Present</th>
+                                    <th>Absent</th>
+                                    <th>Attendance</th>
+                                </tr>
+                            </thead>
+
+                            <tbody>
+                                <% subjectSummary.forEach(function(item) { %>
+                                    <tr>
+                                        <td><strong><%= item.name %></strong></td>
+                                        <td><%= item.code || "-" %></td>
+                                        <td><%= item.total %></td>
+                                        <td class="teacher-success"><%= item.present %></td>
+                                        <td class="teacher-danger"><%= item.absent %></td>
+                                        <td>
+                                            <span class="teacher-percent-pill <%= item.percentage >= 75 ? 'good' : 'bad' %>">
+                                                <%= item.percentage %>%
+                                            </span>
+                                        </td>
+                                    </tr>
+                                <% }) %>
+                            </tbody>
+                        </table>
+                    </div>
+                <% } %>
+            </section>
+
+            <section class="teacher-card teacher-report-panel" id="report-class-summary" data-report-panel="class-summary">
+                <div class="teacher-card-header">
+                    <div>
+                        <h3>Class-wise Summary</h3>
+                        <p>Attendance grouped by class groups.</p>
+                    </div>
+
+                    <span class="teacher-count-pill">
+                        <%= classSummary ? classSummary.length : 0 %> Classes
+                    </span>
+                </div>
+
+                <% if (!classSummary || classSummary.length === 0) { %>
+                    <div class="teacher-empty">No class report found.</div>
+                <% } else { %>
+                    <div class="teacher-table-wrap">
+                        <table class="teacher-report-table teacher-report-table-compact">
+                            <thead>
+                                <tr>
+                                    <th>Class Group</th>
+                                    <th>Total</th>
+                                    <th>Present</th>
+                                    <th>Absent</th>
+                                    <th>Attendance</th>
+                                </tr>
+                            </thead>
+
+                            <tbody>
+                                <% classSummary.forEach(function(item) { %>
+                                    <tr>
+                                        <td><strong><%= item.name %></strong></td>
+                                        <td><%= item.total %></td>
+                                        <td class="teacher-success"><%= item.present %></td>
+                                        <td class="teacher-danger"><%= item.absent %></td>
+                                        <td>
+                                            <span class="teacher-percent-pill <%= item.percentage >= 75 ? 'good' : 'bad' %>">
+                                                <%= item.percentage %>%
+                                            </span>
+                                        </td>
+                                    </tr>
+                                <% }) %>
+                            </tbody>
+                        </table>
+                    </div>
+                <% } %>
+            </section>
+
+            <section class="teacher-card teacher-report-panel" id="report-student-summary" data-report-panel="student-summary">
+                <div class="teacher-card-header">
+                    <div>
+                        <h3>Student-wise Summary</h3>
+                        <p>Attendance grouped by students.</p>
+                    </div>
+
+                    <span class="teacher-count-pill">
+                        <%= studentSummary ? studentSummary.length : 0 %> Students
+                    </span>
+                </div>
+
+                <% if (!studentSummary || studentSummary.length === 0) { %>
+                    <div class="teacher-empty">No student report found.</div>
+                <% } else { %>
+                    <div class="teacher-table-wrap">
+                        <table class="teacher-report-table teacher-report-table-compact">
+                            <thead>
+                                <tr>
+                                    <th>Student</th>
+                                    <th>Enrollment</th>
+                                    <th>Total</th>
+                                    <th>Present</th>
+                                    <th>Absent</th>
+                                    <th>Attendance</th>
+                                </tr>
+                            </thead>
+
+                            <tbody>
+                                <% studentSummary.forEach(function(item) { %>
+                                    <tr>
+                                        <td><strong><%= item.name %></strong></td>
+                                        <td><%= item.enrollmentNumber || "-" %></td>
+                                        <td><%= item.total %></td>
+                                        <td class="teacher-success"><%= item.present %></td>
+                                        <td class="teacher-danger"><%= item.absent %></td>
+                                        <td>
+                                            <span class="teacher-percent-pill <%= item.percentage >= 75 ? 'good' : 'bad' %>">
+                                                <%= item.percentage %>%
+                                            </span>
+                                        </td>
+                                    </tr>
+                                <% }) %>
+                            </tbody>
+                        </table>
+                    </div>
+                <% } %>
+            </section>
+
+            <section class="teacher-card teacher-report-panel" id="report-detailed-records" data-report-panel="detailed-records">
+                <div class="teacher-card-header">
+                    <div>
+                        <h3>Detailed Attendance Records</h3>
+                        <p>Grouped by subject and class group for faster analysis.</p>
+                    </div>
+
+                    <span class="teacher-count-pill">
+                        <%= attendanceRecords.length %> Records
+                    </span>
+                </div>
+
+                <% if (!attendanceRecords || attendanceRecords.length === 0) { %>
+                    <div class="teacher-empty">No attendance records found.</div>
+                <% } else { %>
+                    <div class="teacher-report-directory-toolbar" data-report-record-directory>
+                        <div class="teacher-search-box">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <input
+                                type="text"
+                                data-teacher-record-search
+                                placeholder="Search by student, enrollment, method, class or date..."
+                            >
+                        </div>
+
+                        <div class="teacher-schedule-filter-field">
+                            <label for="teacherReportRecordGroupFilter">Group</label>
+                            <select id="teacherReportRecordGroupFilter" data-teacher-record-filter="group">
+                                <option value="">All Subject Groups</option>
+
+                                <% detailedRecordGroups.forEach(function(group) { %>
+                                    <option value="<%= group.filterId %>">
+                                        <%= group.subjectName %> · <%= group.className %>
+                                    </option>
+                                <% }) %>
+                            </select>
+                        </div>
+
+                        <div class="teacher-schedule-filter-field">
+                            <label for="teacherReportRecordStatusFilter">Status</label>
+                            <select id="teacherReportRecordStatusFilter" data-teacher-record-filter="status">
+                                <option value="">All Status</option>
+                                <option value="PRESENT">Present</option>
+                                <option value="ABSENT">Absent</option>
+                            </select>
+                        </div>
+
+                        <div class="teacher-schedule-filter-field teacher-schedule-filter-action">
+                            <label>&nbsp;</label>
+                            <button type="button" class="teacher-secondary-btn" data-teacher-record-reset>
+                                <i class="fa-solid fa-rotate-left"></i>
+                                Clear
+                            </button>
+                        </div>
+
+                        <div class="teacher-report-groups">
+                            <% detailedRecordGroups.forEach(function(group, groupIndex) { %>
+                                <details
+                                    class="teacher-report-group-panel"
+                                    data-teacher-record-container
+                                    data-record-group="<%= group.filterId %>"
+                                    <%= groupIndex === 0 ? "open" : "" %>
+                                >
+                                    <summary class="teacher-report-group-summary">
+                                        <div>
+                                            <h4><%= group.subjectName %></h4>
+                                            <p>
+                                                <%= group.className %>
+                                                <% if (group.subjectCode) { %>
+                                                    · <%= group.subjectCode %>
+                                                <% } %>
+                                                ·
+                                                <span class="teacher-success"><%= group.present %> Present</span>
+                                                ·
+                                                <span class="teacher-danger"><%= group.absent %> Absent</span>
+                                            </p>
+                                        </div>
+                                        <span class="teacher-count-pill" data-teacher-record-visible-count>
+                                            <%= group.records.length %> Records
+                                        </span>
+                                    </summary>
+
+                                    <div class="teacher-table-wrap">
+                                        <table class="teacher-report-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Date</th>
+                                                    <th>Student</th>
+                                                    <th>Status</th>
+                                                    <th>Method</th>
+                                                    <th>Distance</th>
+                                                </tr>
+                                            </thead>
+
+                                            <tbody>
+                                                <% group.records.forEach(function(record) { %>
+                                                    <%
+                                                        const session = record.attendanceSession;
+                                                        const sessionDate = session && session.startTime ? session.startTime : record.createdAt;
+                                                    %>
+                                                    <tr
+                                                        data-teacher-record-item
+                                                        data-filter-status="<%= record.status %>"
+                                                    >
+                                                        <td>
+                                                            <%= new Date(sessionDate).toLocaleDateString() %>
+                                                            <br>
+                                                            <small><%= new Date(sessionDate).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) %></small>
+                                                        </td>
+
+                                                        <td>
+                                                            <strong><%= record.student ? record.student.fullName : "Student Missing" %></strong>
+                                                            <br>
+                                                            <small><%= record.student && record.student.enrollmentNumber ? record.student.enrollmentNumber : "-" %></small>
+                                                        </td>
+
+                                                        <td>
+                                                            <span class="teacher-status <%= record.status === 'PRESENT' ? 'present' : 'absent' %>">
+                                                                <%= record.status %>
+                                                            </span>
+                                                        </td>
+
+                                                        <td><%= record.verificationMethod || "-" %></td>
+
+                                                        <td>
+                                                            <%
+                                                                const teacherRecordDeviceInfo = record.deviceInfo || {};
+                                                                const teacherHasVerifiedDistance =
+                                                                    teacherRecordDeviceInfo.verifiedDistanceFromClassroom !== undefined ||
+                                                                    teacherRecordDeviceInfo.minimumPossibleDistance !== undefined;
+                                                                const teacherVerifiedDistance =
+                                                                    teacherRecordDeviceInfo.verifiedDistanceFromClassroom !== undefined &&
+                                                                    teacherRecordDeviceInfo.verifiedDistanceFromClassroom !== null
+                                                                        ? teacherRecordDeviceInfo.verifiedDistanceFromClassroom
+                                                                        : (
+                                                                            teacherRecordDeviceInfo.minimumPossibleDistance !== undefined &&
+                                                                            teacherRecordDeviceInfo.minimumPossibleDistance !== null
+                                                                                ? teacherRecordDeviceInfo.minimumPossibleDistance
+                                                                                : record.distanceFromClassroom
+                                                                        );
+                                                                const teacherMeasuredDistance =
+                                                                    teacherRecordDeviceInfo.measuredDistanceFromClassroom !== undefined &&
+                                                                    teacherRecordDeviceInfo.measuredDistanceFromClassroom !== null
+                                                                        ? teacherRecordDeviceInfo.measuredDistanceFromClassroom
+                                                                        : null;
+                                                            %>
+                                                            <% if (teacherVerifiedDistance !== undefined && teacherVerifiedDistance !== null) { %>
+                                                                <span class="gps-distance-cell">
+                                                                    <span class="gps-distance-pill">
+                                                                        <%= teacherHasVerifiedDistance ? "Verified" : "Recorded" %>
+                                                                        <%= Math.round(teacherVerifiedDistance) %>m
+                                                                    </span>
+
+                                                                    <% if (teacherMeasuredDistance !== null && Math.round(teacherMeasuredDistance) !== Math.round(teacherVerifiedDistance)) { %>
+                                                                        <small>GPS read <%= Math.round(teacherMeasuredDistance) %>m</small>
+                                                                    <% } %>
+                                                                </span>
+                                                            <% } else { %>
+                                                                -
+                                                            <% } %>
+                                                        </td>
+                                                    </tr>
+                                                <% }) %>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </details>
+                            <% }) %>
+                        </div>
+
+                        <div class="teacher-empty hidden-by-filter" data-teacher-record-empty>
+                            No detailed attendance records match your current search and filters.
+                        </div>
+                    </div>
+                <% } %>
+            </section>
+
+            <section class="teacher-card teacher-report-panel" id="report-suspicious-attempts" data-report-panel="suspicious-attempts">
+                <div class="teacher-card-header">
+                    <div>
+                        <h3>Suspicious Attempts</h3>
+                        <p>Grouped by reason code for quick incident review.</p>
+                    </div>
+
+                    <span class="teacher-count-pill danger">
+                        <%= suspiciousAttempts.length %> Attempts
+                    </span>
+                </div>
+
+                <% if (!suspiciousAttempts || suspiciousAttempts.length === 0) { %>
+                    <div class="teacher-empty">No suspicious attempts found.</div>
+                <% } else { %>
+                    <div class="teacher-report-directory-toolbar compact" data-report-attempt-directory>
+                        <div class="teacher-search-box">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <input
+                                type="text"
+                                data-teacher-attempt-search
+                                placeholder="Search by student, enrollment, reason message, class or date..."
+                            >
+                        </div>
+
+                        <div class="teacher-schedule-filter-field">
+                            <label for="teacherReportAttemptReasonFilter">Reason</label>
+                            <select id="teacherReportAttemptReasonFilter" data-teacher-attempt-filter="reason">
+                                <option value="">All Reasons</option>
+
+                                <% suspiciousAttemptGroups.forEach(function(group) { %>
+                                    <option value="<%= group.filterId %>">
+                                        <%= group.reasonCode %> (<%= group.attempts.length %>)
+                                    </option>
+                                <% }) %>
+                            </select>
+                        </div>
+
+                        <div class="teacher-schedule-filter-field teacher-schedule-filter-action">
+                            <label>&nbsp;</label>
+                            <button type="button" class="teacher-secondary-btn" data-teacher-attempt-reset>
+                                <i class="fa-solid fa-rotate-left"></i>
+                                Clear
+                            </button>
+                        </div>
+
+                        <div class="teacher-report-groups">
+                            <% suspiciousAttemptGroups.forEach(function(group, groupIndex) { %>
+                                <details
+                                    class="teacher-report-group-panel danger"
+                                    data-teacher-attempt-container
+                                    data-attempt-reason="<%= group.filterId %>"
+                                    <%= groupIndex === 0 ? "open" : "" %>
+                                >
+                                    <summary class="teacher-report-group-summary">
+                                        <div>
+                                            <h4><%= group.reasonCode %></h4>
+                                            <p><%= group.reasonMessage %></p>
+                                        </div>
+                                        <span class="teacher-count-pill danger" data-teacher-attempt-visible-count>
+                                            <%= group.attempts.length %> Attempts
+                                        </span>
+                                    </summary>
+
+                                    <div class="teacher-table-wrap">
+                                        <table class="teacher-report-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Date</th>
+                                                    <th>Student</th>
+                                                    <th>Reason Detail</th>
+                                                    <th>Distance</th>
+                                                    <th>Radius</th>
+                                                    <th>Accuracy</th>
+                                                </tr>
+                                            </thead>
+
+                                            <tbody>
+                                                <% group.attempts.forEach(function(attempt) { %>
+                                                    <tr data-teacher-attempt-item>
+                                                        <td>
+                                                            <%= new Date(attempt.createdAt).toLocaleDateString() %>
+                                                            <br>
+                                                            <small><%= new Date(attempt.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) %></small>
+                                                        </td>
+
+                                                        <td>
+                                                            <strong><%= attempt.studentName %></strong>
+                                                            <br>
+                                                            <small><%= attempt.enrollmentNumber %></small>
+                                                        </td>
+
+                                                        <td>
+                                                            <strong><%= attempt.reasonCode %></strong>
+                                                            <br>
+                                                            <small><%= attempt.reasonMessage %></small>
+                                                        </td>
+
+                                                        <td><%= Math.round(attempt.distanceFromTeacher || 0) %>m</td>
+                                                        <td><%= Math.round(attempt.allowedRadius || 0) %>m</td>
+                                                        <td><%= Math.round(attempt.gpsAccuracy || 0) %>m</td>
+                                                    </tr>
+                                                <% }) %>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </details>
+                            <% }) %>
+                        </div>
+
+                        <div class="teacher-empty hidden-by-filter" data-teacher-attempt-empty>
+                            No suspicious attempts match your current search and filters.
+                        </div>
+                    </div>
+                <% } %>
+            </section>
+        </div>
+
+    </main>
+
+</div>
+
+<script src="/js/teacherNav.js"></script>
+<script src="/js/teacherPanels.js"></script>
+<script src="/js/uiShell.js"></script>
+</body>
+</html>

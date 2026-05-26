@@ -7,6 +7,9 @@
 
     <link rel="stylesheet" href="/css/platformAdmin.css">
 
+    <link rel="stylesheet" href="/css/uiShell.css">
+    <link rel="stylesheet" href="/css/finalUiFix.css">
+
     <link
         rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
@@ -16,45 +19,19 @@
 
 <div class="platform-layout">
 
-    <aside class="platform-sidebar">
-        <div class="platform-logo">
-            <i class="fa-solid fa-shield-halved"></i>
-            <div>
-                <h2>Attendify</h2>
-                <p>Super Admin</p>
-            </div>
-        </div>
-
-        <nav>
-            <a class="<%= activePage === 'dashboard' ? 'active' : '' %>" href="/platform-admin/dashboard">
-                <i class="fa-solid fa-chart-line"></i>
-                Dashboard
-            </a>
-
-            <a class="<%= activePage === 'requests' ? 'active' : '' %>" href="/platform-admin/requests?status=PENDING">
-                <i class="fa-solid fa-building-circle-check"></i>
-                College Requests
-            </a>
-        </nav>
-
-        <form action="/platform-admin/logout" method="POST">
-            <button class="platform-logout-btn" type="submit">
-                <i class="fa-solid fa-right-from-bracket"></i>
-                Logout
-            </button>
-        </form>
-    </aside>
+    <%- include("partials/sidebar", { activePage }) %>
 
     <main class="platform-main">
 
         <header class="platform-header">
             <div>
-                <span>Platform Admin</span>
+                <span class="platform-kicker">Platform Admin</span>
                 <h1>College Requests</h1>
-                <p>Approve or reject college registration requests.</p>
+                <p>Approve, reject, or reset college admin passwords.</p>
             </div>
 
-            <a href="/college/register" class="platform-primary-link">
+            <a href="/college/register" class="platform-primary-link" target="_blank" rel="noopener noreferrer">
+                <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>
                 Public Register Page
             </a>
         </header>
@@ -172,6 +149,7 @@
                                 method="POST"
                                 onsubmit="return confirm('Approve this college request?')"
                             >
+                                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                                 <button class="platform-approve-btn" type="submit">
                                     <i class="fa-solid fa-check"></i>
                                     Approve
@@ -188,6 +166,7 @@
                                     method="POST"
                                     onsubmit="return confirm('Reject this college request?')"
                                 >
+                                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                                     <textarea
                                         name="rejectionReason"
                                         placeholder="Reason for rejection"
@@ -203,6 +182,24 @@
 
                     <% } %>
 
+                    <% if (request.status === "APPROVED") { %>
+
+                        <div class="platform-action-row">
+                            <form
+                                action="/platform-admin/requests/<%= request._id %>/reset-admin-password"
+                                method="POST"
+                                onsubmit="return confirm('Reset college admin password for <%= request.collegeName %>? A new temporary password will be generated and shown once on dashboard.')"
+                            >
+                                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                                <button class="platform-admin-warning-btn" type="submit">
+                                    <i class="fa-solid fa-key"></i>
+                                    Reset Admin Password
+                                </button>
+                            </form>
+                        </div>
+
+                    <% } %>
+
                 </article>
 
             <% }) %>
@@ -213,5 +210,6 @@
 
 </div>
 
+<script src="/js/uiShell.js"></script>
 </body>
 </html>

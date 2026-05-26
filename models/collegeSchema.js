@@ -65,17 +65,11 @@ const collegeSchema = new mongoose.Schema({
 });
 
 collegeSchema.index({
-    collegeCode: 1
-}, {
-    unique: true
-});
-
-collegeSchema.index({
     collegeName: 1,
     city: 1,
     state: 1
 });
 
-const College = mongoose.model("College", collegeSchema);
+const College = mongoose.models.College || mongoose.model("College", collegeSchema);
 
 module.exports = College;

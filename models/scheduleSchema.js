@@ -56,6 +56,6 @@ scheduleSchema.index({ college: 1, day: 1, teacher: 1, startTime: 1 });
 scheduleSchema.index({ college: 1, day: 1, classGroup: 1, startTime: 1 });
 scheduleSchema.index({ college: 1, day: 1, classroom: 1, startTime: 1 });
 
-const Schedule = mongoose.model("Schedule", scheduleSchema);
+const Schedule = mongoose.models.Schedule || mongoose.model("Schedule", scheduleSchema);
 
 module.exports = Schedule;

@@ -1,3 +1,4 @@
+const socketManager = require("../utils/socketManager");
 const express = require("express");
 const router = express.Router();
 
@@ -8,12 +9,148 @@ const Classroom = require("../models/classroomSchema");
 const ClassGroup = require("../models/classGroupSchema");
 const AttendanceSession = require("../models/attendanceSessionSchema");
 const AttendanceRecord = require("../models/attendanceRecordSchema");
+const AttendanceAttempt = require("../models/attendanceAttemptSchema");
+const Subject = require("../models/subjectSchema");
+const {
+    getUnreadCount,
+    getRecentNotifications,
+    markAllRead,
+    markNotificationRead,
+    deleteNotification,
+    clearAllNotifications
+} = require("../utils/notificationService");
 
 const {
+    timeToMinutes,
     getScheduleTimeStatus,
     getTodayRange,
     sortSchedulesByTime
 } = require("../utils/scheduleTime");
+
+function teacherGetDateInputValue(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+
+    return year + "-" + month + "-" + day;
+}
+
+function teacherGetStartOfDate(dateString) {
+    const date = dateString ? new Date(dateString + "T00:00:00") : new Date();
+    date.setHours(0, 0, 0, 0);
+    return date;
+}
+
+function teacherGetEndOfDate(dateString) {
+    const date = dateString ? new Date(dateString + "T23:59:59.999") : new Date();
+    date.setHours(23, 59, 59, 999);
+    return date;
+}
+
+function teacherGetDayNameFromDate(date) {
+    const days = [
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday"
+    ];
+
+    return days[date.getDay()];
+}
+
+function teacherNormalizeManualDateInput(dateInput) {
+    const todayInput = teacherGetDateInputValue(new Date());
+
+    if (!dateInput || !dateInput.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        return todayInput;
+    }
+
+    const parsed = new Date(dateInput + "T00:00:00");
+
+    if (Number.isNaN(parsed.getTime())) {
+        return todayInput;
+    }
+
+    const todayStart = teacherGetStartOfDate(todayInput);
+
+    if (parsed.getTime() > todayStart.getTime()) {
+        return todayInput;
+    }
+
+    return teacherGetDateInputValue(parsed);
+}
+
+function teacherGetManualDateLabel(dateInput) {
+    const date = new Date(dateInput + "T00:00:00");
+
+    return date.toLocaleDateString([], {
+        weekday: "short",
+        day: "2-digit",
+        month: "short",
+        year: "numeric"
+    });
+}
+
+function teacherGetPercent(part, total) {
+    if (!total || total <= 0) {
+        return 0;
+    }
+
+    return Math.round((part / total) * 100);
+}
+
+function teacherSafeObjectId(value) {
+    if (!value || value === "all") {
+        return null;
+    }
+
+    if (!value.match(/^[0-9a-fA-F]{24}$/)) {
+        return null;
+    }
+
+    return value;
+}
+
+function getTeacherNotificationFilter(teacher) {
+    return {
+        recipientRole: "TEACHER",
+        recipientUserId: teacher._id || teacher.id
+    };
+}
+
+function isValidLatitude(value) {
+    const latitude = Number(value);
+
+    return (
+        Number.isFinite(latitude) &&
+        latitude >= -90 &&
+        latitude <= 90
+    );
+}
+
+function isValidLongitude(value) {
+    const longitude = Number(value);
+
+    return (
+        Number.isFinite(longitude) &&
+        longitude >= -180 &&
+        longitude <= 180
+    );
+}
+
+function isValidGpsAccuracy(value) {
+    const accuracy = Number(value);
+
+    return (
+        Number.isFinite(accuracy) &&
+        accuracy > 0 &&
+        accuracy <= 50
+    );
+}
+
 
 function isTeacher(req, res, next) {
     if (!req.isAuthenticated()) {
@@ -42,8 +179,17 @@ function getTodayName() {
 }
 
 function getErrorMessage(errorCode) {
+        
     if (errorCode === "location") {
         return "Teacher location is required to start attendance. Please allow location access.";
+    }
+
+    if (errorCode === "invalid_teacher_location") {
+        return "Teacher GPS location is invalid. Please try again.";
+    }
+
+    if (errorCode === "teacher_location_accuracy_low") {
+        return "Teacher GPS accuracy is too low. Move near a window or open area and try again.";
     }
 
     if (errorCode === "outside_window") {
@@ -66,6 +212,18 @@ function getErrorMessage(errorCode) {
         return "Schedule not found. Please start attendance from a valid schedule card.";
     }
 
+    if (errorCode === "active_session_exists") {
+        return "This class already has an active attendance session.";
+    }
+
+    if (errorCode === "manual_page_only") {
+        return "Class time is over. Please use the manual attendance page.";
+    }
+    
+    if (errorCode === "no_students") {
+        return "No students found in this class group.";
+    }
+
     return null;
 }
 
@@ -76,6 +234,9 @@ function getSuccessMessage(messageCode) {
 
     if (messageCode === "manual_saved") {
         return "Manual attendance saved successfully.";
+    }
+    if (messageCode === "live_restarted") {
+        return "Attendance session restarted successfully.";
     }
 
     return null;
@@ -116,6 +277,38 @@ function findSessionForSchedule(sessions, schedule) {
     return null;
 }
 
+function teacherCsvEscape(value) {
+    if (value === undefined || value === null) {
+        return "";
+    }
+
+    const text = value.toString();
+
+    if (
+        text.includes(",") ||
+        text.includes('"') ||
+        text.includes("\n")
+    ) {
+        return '"' + text.replace(/"/g, '""') + '"';
+    }
+
+    return text;
+}
+
+function teacherSendCsvResponse(res, filename, rows) {
+    const csvContent = rows.map(function (row) {
+        return row.map(teacherCsvEscape).join(",");
+    }).join("\n");
+
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader(
+        "Content-Disposition",
+        "attachment; filename=" + filename
+    );
+
+    res.send(csvContent);
+}
+
 async function getScheduleForTeacher(req) {
     const scheduleId = req.body.scheduleId;
 
@@ -136,6 +329,76 @@ async function getScheduleForTeacher(req) {
     .populate("classroom");
 
     return scheduleItem;
+}
+
+function getScheduleDateTimeForToday(timeText) {
+    const minutes = timeToMinutes(timeText);
+
+    if (minutes === null) {
+        return null;
+    }
+
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setMinutes(minutes);
+
+    return date;
+}
+
+function isScheduleAlreadyManuallyRecorded(session) {
+    if (!session) {
+        return false;
+    }
+
+    if (!session.attendanceRecords || session.attendanceRecords.length === 0) {
+        return false;
+    }
+
+    if (session.status === "CLOSED" && session.isActive === false) {
+        return true;
+    }
+
+    return false;
+}
+
+async function getLatestTodaySessionForSchedule(scheduleItem, teacherId, collegeId) {
+    const todayRange = getTodayRange();
+
+    return AttendanceSession.findOne({
+        schedule: scheduleItem._id,
+        teacher: teacherId,
+        college: collegeId,
+        startTime: {
+            $gte: todayRange.start,
+            $lte: todayRange.end
+        }
+    })
+    .sort({
+        createdAt: -1
+    });
+}
+
+async function getLatestSessionForScheduleByDate(
+    scheduleItem,
+    teacherId,
+    collegeId,
+    dateInput
+) {
+    const rangeStart = teacherGetStartOfDate(dateInput);
+    const rangeEnd = teacherGetEndOfDate(dateInput);
+
+    return AttendanceSession.findOne({
+        schedule: scheduleItem._id,
+        teacher: teacherId,
+        college: collegeId,
+        startTime: {
+            $gte: rangeStart,
+            $lte: rangeEnd
+        }
+    })
+    .sort({
+        createdAt: -1
+    });
 }
 
 router.get("/dashboard", isTeacher, async (req, res) => {
@@ -206,7 +469,8 @@ router.get("/dashboard", isTeacher, async (req, res) => {
 
         const students = await Student.find({
             college: req.user.college,
-            classGroup: { $in: classGroupIds }
+            classGroup: { $in: classGroupIds },
+            isDeleted: { $ne: true }
         }).sort({ fullName: 1 });
 
         const studentsByClassGroup = {};
@@ -248,35 +512,57 @@ router.get("/dashboard", isTeacher, async (req, res) => {
                 todaySession: todaySession,
                 liveSession: liveSession,
                 canStart: false,
-                showManual: false
+                canRestart: false,
+                showManual: false,
+                manualAlreadyDone: false
             };
 
+            /*
+                FIX:
+                Earlier logic blocked start if ANY todaySession existed.
+                Now teacher can start/restart if:
+                - current time is within class time
+                - no active session exists
+                - schedule data is valid
+            */
             if (
                 timeStatus === "live" &&
-                !todaySession &&
+                !liveSession &&
                 item.subject &&
                 item.classGroup &&
                 item.classroom
             ) {
                 card.canStart = true;
+
+                if (todaySession) {
+                    card.canRestart = true;
+                }
             }
 
+            /*
+                Manual attendance:
+                available only after class time ended.
+                If a completed session already exists, show Recorded.
+            */
             if (
                 timeStatus === "ended" &&
-                !todaySession &&
                 item.subject &&
                 item.classGroup &&
                 item.classroom
             ) {
-                card.showManual = true;
+                if (todaySession && isScheduleAlreadyManuallyRecorded(todaySession)) {
+                    card.manualAlreadyDone = true;
+                } else if (!todaySession) {
+                    card.showManual = true;
 
-                const groupId = item.classGroup._id.toString();
-                const classStudents = studentsByClassGroup[groupId] || [];
+                    const groupId = item.classGroup._id.toString();
+                    const classStudents = studentsByClassGroup[groupId] || [];
 
-                manualAttendanceList.push({
-                    schedule: item,
-                    students: classStudents
-                });
+                    manualAttendanceList.push({
+                        schedule: item,
+                        students: classStudents
+                    });
+                }
             }
 
             scheduleCards.push(card);
@@ -284,6 +570,7 @@ router.get("/dashboard", isTeacher, async (req, res) => {
 
         res.render("teacherDashboard", {
             teacher: teacher,
+            activePage: "dashboard",
             subjects: teacher.subjects || [],
             classGroups: classGroups || [],
             classrooms: classrooms || [],
@@ -305,11 +592,232 @@ router.get("/dashboard", isTeacher, async (req, res) => {
     }
 });
 
+router.get("/notifications", isTeacher, async function (req, res) {
+    try {
+        const teacher = await Teacher.findById(req.user._id).select("-password");
+
+        if (!teacher) {
+            return res.redirect("/teacher/login");
+        }
+
+        const notifications = await getRecentNotifications(
+            getTeacherNotificationFilter(teacher),
+            120
+        );
+
+        const unreadCount = await getUnreadCount(getTeacherNotificationFilter(teacher));
+
+        res.render("teacherNotifications", {
+            teacher: teacher,
+            activePage: "notifications",
+            notifications: notifications,
+            unreadCount: unreadCount
+        });
+    } catch (err) {
+        console.log("TEACHER NOTIFICATIONS PAGE ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.status(500).send("Teacher notifications error: " + err.message);
+    }
+});
+
+router.post("/notifications/mark-all-read", isTeacher, async function (req, res) {
+    try {
+        const teacher = await Teacher.findById(req.user._id).select("_id");
+
+        if (!teacher) {
+            return res.redirect("/teacher/login");
+        }
+
+        await markAllRead(getTeacherNotificationFilter(teacher));
+
+        const unreadCount = await getUnreadCount(getTeacherNotificationFilter(teacher));
+
+        socketManager.emitNotificationUnreadCount({
+            recipientRole: "TEACHER",
+            recipientUserId: teacher._id,
+            unreadCount: unreadCount
+        });
+
+        res.redirect("/teacher/notifications");
+    } catch (err) {
+        console.log("TEACHER MARK ALL NOTIFICATIONS READ ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.redirect("/teacher/notifications");
+    }
+});
+
+router.post("/notifications/clear-all", isTeacher, async function (req, res) {
+    try {
+        const teacher = await Teacher.findById(req.user._id).select("_id");
+
+        if (!teacher) {
+            return res.redirect("/teacher/login");
+        }
+
+        await clearAllNotifications(getTeacherNotificationFilter(teacher));
+
+        socketManager.emitNotificationUnreadCount({
+            recipientRole: "TEACHER",
+            recipientUserId: teacher._id,
+            unreadCount: 0
+        });
+
+        res.redirect("/teacher/notifications");
+    } catch (err) {
+        console.log("TEACHER CLEAR ALL NOTIFICATIONS ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.redirect("/teacher/notifications");
+    }
+});
+
+router.post("/notifications/:id/read", isTeacher, async function (req, res) {
+    try {
+        const teacher = await Teacher.findById(req.user._id).select("_id");
+
+        if (!teacher) {
+            return res.redirect("/teacher/login");
+        }
+
+        await markNotificationRead(req.params.id, getTeacherNotificationFilter(teacher));
+
+        const unreadCount = await getUnreadCount(getTeacherNotificationFilter(teacher));
+
+        socketManager.emitNotificationUnreadCount({
+            recipientRole: "TEACHER",
+            recipientUserId: teacher._id,
+            unreadCount: unreadCount
+        });
+
+        res.redirect("/teacher/notifications");
+    } catch (err) {
+        console.log("TEACHER MARK NOTIFICATION READ ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.redirect("/teacher/notifications");
+    }
+});
+
+router.post("/notifications/:id/delete", isTeacher, async function (req, res) {
+    try {
+        const teacher = await Teacher.findById(req.user._id).select("_id");
+
+        if (!teacher) {
+            return res.redirect("/teacher/login");
+        }
+
+        await deleteNotification(req.params.id, getTeacherNotificationFilter(teacher));
+
+        const unreadCount = await getUnreadCount(getTeacherNotificationFilter(teacher));
+
+        socketManager.emitNotificationUnreadCount({
+            recipientRole: "TEACHER",
+            recipientUserId: teacher._id,
+            unreadCount: unreadCount
+        });
+
+        res.redirect("/teacher/notifications");
+    } catch (err) {
+        console.log("TEACHER DELETE NOTIFICATION ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.redirect("/teacher/notifications");
+    }
+});
+
+router.get("/notifications/unread-count", isTeacher, async function (req, res) {
+    try {
+        const teacher = await Teacher.findById(req.user._id).select("_id");
+
+        if (!teacher) {
+            return res.status(401).json({
+                success: false,
+                message: "Teacher not found."
+            });
+        }
+
+        const unreadCount = await getUnreadCount(getTeacherNotificationFilter(teacher));
+
+        res.json({
+            success: true,
+            unreadCount: unreadCount
+        });
+    } catch (err) {
+        console.log("TEACHER UNREAD NOTIFICATION COUNT ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.status(500).json({
+            success: false,
+            message: "Unable to load unread notification count."
+        });
+    }
+});
+
+router.get("/suspicious-attempts/recent", isTeacher, async function (req, res) {
+    try {
+        const teacherId = req.user._id || req.user.id;
+
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+
+        const attempts = await AttendanceAttempt.find({
+            teacher: teacherId,
+            result: { $ne: "SUCCESS" },
+            createdAt: { $gte: todayStart }
+        })
+            .sort({ createdAt: -1 })
+            .limit(10)
+            .lean();
+
+        res.json({
+            success: true,
+            attempts: attempts.map(function (attempt) {
+                return {
+                    attemptId: attempt._id.toString(),
+                    sessionId: attempt.attendanceSession ? attempt.attendanceSession.toString() : "",
+                    scheduleId: attempt.schedule ? attempt.schedule.toString() : "",
+                    studentId: attempt.student ? attempt.student.toString() : "",
+                    studentName: attempt.studentName || "Unknown Student",
+                    enrollmentNumber: attempt.enrollmentNumber || "Unknown",
+                    reasonCode: attempt.reasonCode || "UNKNOWN",
+                    reasonMessage: attempt.reasonMessage || "Suspicious attendance attempt.",
+                    result: attempt.result || "REJECTED",
+                    distanceFromTeacher: Math.round(attempt.distanceFromTeacher || 0),
+                    allowedRadius: Math.round(attempt.allowedRadius || 0),
+                    gpsAccuracy: Math.round(attempt.gpsAccuracy || 0),
+                    maxAllowedAccuracy: Math.round(attempt.maxAllowedAccuracy || 100),
+                    createdAt: attempt.createdAt
+                };
+            })
+        });
+
+    } catch (err) {
+        console.log("TEACHER RECENT SUSPICIOUS ATTEMPTS ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.status(500).json({
+            success: false,
+            message: "Unable to load suspicious attempts."
+        });
+    }
+});
+
 router.post("/attendance/start", isTeacher, async (req, res) => {
     try {
         const durationMinutes = Number(req.body.durationMinutes) || 5;
+
         const teacherLatitude = req.body.teacherLatitude;
         const teacherLongitude = req.body.teacherLongitude;
+        const teacherAccuracy = req.body.teacherAccuracy;
 
         const scheduleItem = await getScheduleForTeacher(req);
 
@@ -323,10 +831,23 @@ router.post("/attendance/start", isTeacher, async (req, res) => {
         }
 
         if (
-            teacherLatitude == null || teacherLatitude === "" ||
-            teacherLongitude == null || teacherLongitude === ""
+            teacherLatitude == null ||
+            teacherLatitude === "" ||
+            teacherLongitude == null ||
+            teacherLongitude === ""
         ) {
             return res.redirect("/teacher/dashboard?error=location");
+        }
+
+        if (
+            !isValidLatitude(teacherLatitude) ||
+            !isValidLongitude(teacherLongitude)
+        ) {
+            return res.redirect("/teacher/dashboard?error=invalid_teacher_location");
+        }
+
+        if (!isValidGpsAccuracy(teacherAccuracy)) {
+            return res.redirect("/teacher/dashboard?error=teacher_location_accuracy_low");
         }
 
         const timeStatus = getScheduleTimeStatus(
@@ -339,22 +860,6 @@ router.post("/attendance/start", isTeacher, async (req, res) => {
             return res.redirect("/teacher/dashboard?error=outside_window");
         }
 
-        const todayRange = getTodayRange();
-
-        const sessionToday = await AttendanceSession.findOne({
-            schedule: scheduleItem._id,
-            teacher: req.user._id,
-            college: req.user.college,
-            startTime: {
-                $gte: todayRange.start,
-                $lte: todayRange.end
-            }
-        });
-
-        if (sessionToday) {
-            return res.redirect("/teacher/dashboard?error=session_exists");
-        }
-
         const alreadyActive = await AttendanceSession.findOne({
             schedule: scheduleItem._id,
             teacher: req.user._id,
@@ -365,13 +870,25 @@ router.post("/attendance/start", isTeacher, async (req, res) => {
         });
 
         if (alreadyActive) {
-            return res.redirect("/teacher/dashboard?error=session_exists");
+            return res.redirect("/teacher/dashboard?error=active_session_exists");
         }
 
-        const startTime = new Date();
-        const endTime = new Date(Date.now() + durationMinutes * 60 * 1000);
+        const previousSession = await getLatestTodaySessionForSchedule(
+            scheduleItem,
+            req.user._id,
+            req.user.college
+        );
 
-        await AttendanceSession.create({
+        const classEndTime = getScheduleDateTimeForToday(scheduleItem.endTime);
+        const requestedEndTime = new Date(Date.now() + durationMinutes * 60 * 1000);
+
+        let sessionEndTime = requestedEndTime;
+
+        if (classEndTime && requestedEndTime > classEndTime) {
+            sessionEndTime = classEndTime;
+        }
+
+        const attendanceSession = await AttendanceSession.create({
             schedule: scheduleItem._id,
             teacher: req.user._id,
             subject: scheduleItem.subject._id,
@@ -381,13 +898,21 @@ router.post("/attendance/start", isTeacher, async (req, res) => {
 
             latitude: Number(teacherLatitude),
             longitude: Number(teacherLongitude),
-            radius: scheduleItem.classroom.radius,
+            teacherGpsAccuracy: Number(teacherAccuracy),
+            locationSource: "TEACHER_GPS",
+            radius: scheduleItem.classroom.radius || 100,
 
-            startTime: startTime,
-            endTime: endTime,
+            startTime: new Date(),
+            endTime: sessionEndTime,
             status: "ACTIVE",
             isActive: true
         });
+
+        socketManager.emitAttendanceStarted(attendanceSession, scheduleItem);
+
+        if (previousSession) {
+            return res.redirect("/teacher/dashboard?message=live_restarted");
+        }
 
         res.redirect("/teacher/dashboard?message=live_started");
 
@@ -400,156 +925,21 @@ router.post("/attendance/start", isTeacher, async (req, res) => {
     }
 });
 
-router.post("/attendance/manual", isTeacher, async (req, res) => {
-    try {
-        let presentStudentIds = req.body.presentStudents || [];
+router.post("/attendance/manual", isTeacher, async function (req, res) {
+    const scheduleId = req.body.scheduleId;
 
-        if (!Array.isArray(presentStudentIds)) {
-            presentStudentIds = [presentStudentIds];
-        }
-
-        const scheduleItem = await getScheduleForTeacher(req);
-
-        if (
-            !scheduleItem ||
-            !scheduleItem.subject ||
-            !scheduleItem.classGroup ||
-            !scheduleItem.classroom
-        ) {
-            return res.redirect("/teacher/dashboard?error=schedule_missing");
-        }
-
-        const timeStatus = getScheduleTimeStatus(
-            scheduleItem.startTime,
-            scheduleItem.endTime,
-            new Date()
-        );
-
-        if (timeStatus !== "ended") {
-            return res.redirect("/teacher/dashboard?error=class_not_ended");
-        }
-
-        const todayRange = getTodayRange();
-
-        const sessionToday = await AttendanceSession.findOne({
-            schedule: scheduleItem._id,
-            teacher: req.user._id,
-            college: req.user.college,
-            startTime: {
-                $gte: todayRange.start,
-                $lte: todayRange.end
-            }
-        });
-
-        if (sessionToday) {
-            return res.redirect("/teacher/dashboard?error=manual_done");
-        }
-
-        const students = await Student.find({
-            college: req.user.college,
-            classGroup: scheduleItem.classGroup._id
-        }).sort({ fullName: 1 });
-
-        if (students.length === 0) {
-            return res.send("No students found in this class group");
-        }
-
-        const presentIdStrings = [];
-
-        for (let i = 0; i < presentStudentIds.length; i++) {
-            presentIdStrings.push(presentStudentIds[i].toString());
-        }
-
-        const session = await AttendanceSession.create({
-            schedule: scheduleItem._id,
-            teacher: req.user._id,
-            subject: scheduleItem.subject._id,
-            college: req.user.college,
-            classGroup: scheduleItem.classGroup._id,
-            classroom: scheduleItem.classroom._id,
-            latitude: scheduleItem.classroom.latitude,
-            longitude: scheduleItem.classroom.longitude,
-            radius: scheduleItem.classroom.radius,
-            startTime: new Date(),
-            endTime: new Date(),
-            status: "CLOSED",
-            isActive: false,
-            closedAt: new Date(),
-            closedBy: req.user._id
-        });
-
-        const recordIds = [];
-        const presentStudentSnapshots = [];
-        const absentStudentSnapshots = [];
-
-        for (let i = 0; i < students.length; i++) {
-            const oneStudent = students[i];
-            const isPresent = presentIdStrings.includes(oneStudent._id.toString());
-
-            const record = await AttendanceRecord.create({
-                student: oneStudent._id,
-                attendanceSession: session._id,
-                subject: scheduleItem.subject._id,
-                college: req.user.college,
-                classGroup: scheduleItem.classGroup._id,
-                classroom: scheduleItem.classroom._id,
-                status: isPresent ? "PRESENT" : "ABSENT",
-                latitude: scheduleItem.classroom.latitude,
-                longitude: scheduleItem.classroom.longitude,
-                distanceFromClassroom: 0,
-                verificationMethod: "MANUAL",
-                deviceInfo: {
-                    userAgent: req.headers["user-agent"],
-                    ip: req.ip
-                }
-            });
-
-            recordIds.push(record._id);
-
-            const studentSnapshot = {
-                student: oneStudent._id,
-                fullName: oneStudent.fullName,
-                enrollmentNumber: oneStudent.enrollmentNumber,
-                status: isPresent ? "PRESENT" : "ABSENT",
-                attendanceRecord: record._id,
-                markedAt: new Date(),
-                verificationMethod: "MANUAL",
-                distanceFromClassroom: 0
-            };
-
-            if (isPresent) {
-                presentStudentSnapshots.push(studentSnapshot);
-            } else {
-                absentStudentSnapshots.push(studentSnapshot);
-            }
-        }
-
-        session.attendanceRecords = recordIds;
-        session.presentStudents = presentStudentSnapshots;
-        session.absentStudents = absentStudentSnapshots;
-
-        session.attendanceSummary.totalPresent = presentStudentSnapshots.length;
-        session.attendanceSummary.totalAbsent = absentStudentSnapshots.length;
-        session.attendanceSummary.totalMarked =
-        presentStudentSnapshots.length + absentStudentSnapshots.length;
-
-        await session.save();
-
-        res.redirect("/teacher/dashboard?message=manual_saved");
-
-    } catch (err) {
-        console.log("TEACHER MANUAL ATTENDANCE ERROR:");
-        console.log(err.message);
-        console.log(err.stack);
-
-        res.send("Could not save manual attendance: " + err.message);
+    if (scheduleId) {
+        return res.redirect("/teacher/manual-attendance/" + scheduleId);
     }
+
+    res.redirect("/teacher/manual-attendance");
 });
 
 async function createAbsentRecordsForMissingStudents(session, req) {
     const students = await Student.find({
         college: session.college,
-        classGroup: session.classGroup._id ? session.classGroup._id : session.classGroup
+        classGroup: session.classGroup._id ? session.classGroup._id : session.classGroup,
+        isDeleted: { $ne: true }
     });
 
     const existingRecords = await AttendanceRecord.find({
@@ -609,8 +999,10 @@ router.post("/attendance/end/:id", isTeacher, async (req, res) => {
     try {
         const session = await AttendanceSession.findOne({
             _id: req.params.id,
-            teacher: req.user._id
+            teacher: req.user._id,
+            college: req.user.college
         })
+        .populate("schedule")
         .populate("subject")
         .populate("classGroup")
         .populate("classroom");
@@ -619,7 +1011,29 @@ router.post("/attendance/end/:id", isTeacher, async (req, res) => {
             return res.send("Attendance session not found");
         }
 
-        await createAbsentRecordsForMissingStudents(session, req);
+        let shouldAutoMarkAbsents = true;
+
+        if (session.schedule && session.schedule.startTime && session.schedule.endTime) {
+            const timeStatus = getScheduleTimeStatus(
+                session.schedule.startTime,
+                session.schedule.endTime,
+                new Date()
+            );
+
+            /*
+                Important:
+                If teacher ends session while class time is still live,
+                do NOT auto mark missing students absent.
+                This allows teacher to restart session again in same class time.
+            */
+            if (timeStatus === "live") {
+                shouldAutoMarkAbsents = false;
+            }
+        }
+
+        if (shouldAutoMarkAbsents) {
+            await createAbsentRecordsForMissingStudents(session, req);
+        }
 
         session.isActive = false;
         session.status = "CLOSED";
@@ -627,6 +1041,8 @@ router.post("/attendance/end/:id", isTeacher, async (req, res) => {
         session.closedBy = req.user._id;
 
         await session.save();
+
+        socketManager.emitAttendanceEnded(session);
 
         res.redirect("/teacher/dashboard");
 
@@ -638,5 +1054,1068 @@ router.post("/attendance/end/:id", isTeacher, async (req, res) => {
         res.send("Could not end attendance: " + err.message);
     }
 });
+
+router.get("/reports", isTeacher, async function (req, res) {
+    try {
+        const teacherId = req.user._id || req.user.id;
+        const collegeId = req.user.college;
+
+        const todayInput = teacherGetDateInputValue(new Date());
+
+        const filters = {
+            fromDate: req.query.fromDate || todayInput,
+            toDate: req.query.toDate || todayInput,
+            classGroupId: req.query.classGroupId || "all",
+            subjectId: req.query.subjectId || "all",
+            status: req.query.status || "all"
+        };
+
+        const fromDate = teacherGetStartOfDate(filters.fromDate);
+        const toDate = teacherGetEndOfDate(filters.toDate);
+
+        const classGroupId = teacherSafeObjectId(filters.classGroupId);
+        const subjectId = teacherSafeObjectId(filters.subjectId);
+
+        const teacherSchedules = await Schedule.find({
+            college: collegeId,
+            teacher: teacherId
+        })
+            .populate("classGroup")
+            .populate("subject")
+            .sort({
+                day: 1,
+                startTime: 1
+            });
+
+        const classGroupIdMap = {};
+        const subjectIdMap = {};
+
+        teacherSchedules.forEach(function (schedule) {
+            if (schedule.classGroup) {
+                classGroupIdMap[schedule.classGroup._id.toString()] = true;
+            }
+
+            if (schedule.subject) {
+                subjectIdMap[schedule.subject._id.toString()] = true;
+            }
+        });
+
+        const classGroups = await ClassGroup.find({
+            _id: { $in: Object.keys(classGroupIdMap) },
+            college: collegeId
+        }).sort({
+            department: 1,
+            semester: 1,
+            section: 1
+        });
+
+        const subjects = await Subject.find({
+            _id: { $in: Object.keys(subjectIdMap) },
+            college: collegeId
+        })
+            .populate("classGroup")
+            .sort({
+                subjectName: 1
+            });
+
+        const sessionQuery = {
+            college: collegeId,
+            teacher: teacherId,
+            startTime: {
+                $gte: fromDate,
+                $lte: toDate
+            }
+        };
+
+        if (classGroupId) {
+            sessionQuery.classGroup = classGroupId;
+        }
+
+        if (subjectId) {
+            sessionQuery.subject = subjectId;
+        }
+
+        const sessions = await AttendanceSession.find(sessionQuery)
+            .populate("schedule")
+            .populate("subject")
+            .populate("teacher")
+            .populate("classGroup")
+            .populate("classroom")
+            .sort({
+                startTime: -1
+            });
+
+        const sessionIds = sessions.map(function (session) {
+            return session._id;
+        });
+
+        const recordQuery = {
+            college: collegeId,
+            attendanceSession: {
+                $in: sessionIds
+            }
+        };
+
+        if (filters.status !== "all") {
+            recordQuery.status = filters.status;
+        }
+
+        const attendanceRecords = await AttendanceRecord.find(recordQuery)
+            .populate("student")
+            .populate("subject")
+            .populate("classGroup")
+            .populate("classroom")
+            .populate({
+                path: "attendanceSession",
+                populate: [
+                    { path: "teacher" },
+                    { path: "schedule" },
+                    { path: "subject" },
+                    { path: "classGroup" },
+                    { path: "classroom" }
+                ]
+            })
+            .sort({
+                createdAt: -1
+            })
+            .limit(1000);
+
+        let totalPresent = 0;
+        let totalAbsent = 0;
+
+        const subjectSummaryMap = {};
+        const classSummaryMap = {};
+        const studentSummaryMap = {};
+
+        attendanceRecords.forEach(function (record) {
+            if (record.status === "PRESENT") {
+                totalPresent++;
+            }
+
+            if (record.status === "ABSENT") {
+                totalAbsent++;
+            }
+
+            const subjectKey = record.subject
+                ? record.subject._id.toString()
+                : "missing-subject";
+
+            if (!subjectSummaryMap[subjectKey]) {
+                subjectSummaryMap[subjectKey] = {
+                    name: record.subject ? record.subject.subjectName : "Subject Missing",
+                    code: record.subject && record.subject.subjectCode ? record.subject.subjectCode : "",
+                    total: 0,
+                    present: 0,
+                    absent: 0
+                };
+            }
+
+            subjectSummaryMap[subjectKey].total++;
+
+            if (record.status === "PRESENT") {
+                subjectSummaryMap[subjectKey].present++;
+            }
+
+            if (record.status === "ABSENT") {
+                subjectSummaryMap[subjectKey].absent++;
+            }
+
+            const classKey = record.classGroup
+                ? record.classGroup._id.toString()
+                : "missing-class";
+
+            if (!classSummaryMap[classKey]) {
+                classSummaryMap[classKey] = {
+                    name: record.classGroup ? record.classGroup.name : "Class Missing",
+                    total: 0,
+                    present: 0,
+                    absent: 0
+                };
+            }
+
+            classSummaryMap[classKey].total++;
+
+            if (record.status === "PRESENT") {
+                classSummaryMap[classKey].present++;
+            }
+
+            if (record.status === "ABSENT") {
+                classSummaryMap[classKey].absent++;
+            }
+
+            const studentKey = record.student
+                ? record.student._id.toString()
+                : "missing-student";
+
+            if (!studentSummaryMap[studentKey]) {
+                studentSummaryMap[studentKey] = {
+                    name: record.student ? record.student.fullName : "Student Missing",
+                    enrollmentNumber: record.student && record.student.enrollmentNumber ? record.student.enrollmentNumber : "",
+                    total: 0,
+                    present: 0,
+                    absent: 0
+                };
+            }
+
+            studentSummaryMap[studentKey].total++;
+
+            if (record.status === "PRESENT") {
+                studentSummaryMap[studentKey].present++;
+            }
+
+            if (record.status === "ABSENT") {
+                studentSummaryMap[studentKey].absent++;
+            }
+        });
+
+        const subjectSummary = Object.values(subjectSummaryMap).map(function (item) {
+            item.percentage = teacherGetPercent(item.present, item.total);
+            return item;
+        });
+
+        const classSummary = Object.values(classSummaryMap).map(function (item) {
+            item.percentage = teacherGetPercent(item.present, item.total);
+            return item;
+        });
+
+        const studentSummary = Object.values(studentSummaryMap).map(function (item) {
+            item.percentage = teacherGetPercent(item.present, item.total);
+            return item;
+        });
+
+        const attemptQuery = {
+            college: collegeId,
+            teacher: teacherId,
+            result: { $ne: "SUCCESS" },
+            createdAt: {
+                $gte: fromDate,
+                $lte: toDate
+            }
+        };
+
+        if (classGroupId) {
+            attemptQuery.classGroup = classGroupId;
+        }
+
+        if (subjectId) {
+            attemptQuery.subject = subjectId;
+        }
+
+        const suspiciousAttempts = await AttendanceAttempt.find(attemptQuery)
+            .populate("student")
+            .populate("subject")
+            .populate("classGroup")
+            .populate("classroom")
+            .sort({
+                createdAt: -1
+            })
+            .limit(50);
+
+        const summary = {
+            totalSessions: sessions.length,
+            totalRecords: attendanceRecords.length,
+            totalPresent: totalPresent,
+            totalAbsent: totalAbsent,
+            attendancePercentage: teacherGetPercent(totalPresent, attendanceRecords.length),
+            suspiciousCount: suspiciousAttempts.length
+        };
+
+        res.render("teacherReports", {
+            teacher: req.user,
+            activePage: "reports",
+            filters: filters,
+            classGroups: classGroups,
+            subjects: subjects,
+            sessions: sessions,
+            attendanceRecords: attendanceRecords,
+            suspiciousAttempts: suspiciousAttempts,
+            subjectSummary: subjectSummary,
+            classSummary: classSummary,
+            studentSummary: studentSummary,
+            summary: summary
+        });
+
+    } catch (err) {
+        console.log("TEACHER REPORTS ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.status(500).send("Teacher reports error: " + err.message);
+    }
+});
+
+router.get("/reports/export-attendance", isTeacher, async function (req, res) {
+    try {
+        const teacherId = req.user._id || req.user.id;
+        const collegeId = req.user.college;
+
+        const todayInput = teacherGetDateInputValue(new Date());
+
+        const filters = {
+            fromDate: req.query.fromDate || todayInput,
+            toDate: req.query.toDate || todayInput,
+            classGroupId: req.query.classGroupId || "all",
+            subjectId: req.query.subjectId || "all",
+            status: req.query.status || "all"
+        };
+
+        const fromDate = teacherGetStartOfDate(filters.fromDate);
+        const toDate = teacherGetEndOfDate(filters.toDate);
+
+        const classGroupId = teacherSafeObjectId(filters.classGroupId);
+        const subjectId = teacherSafeObjectId(filters.subjectId);
+
+        const sessionQuery = {
+            college: collegeId,
+            teacher: teacherId,
+            startTime: {
+                $gte: fromDate,
+                $lte: toDate
+            }
+        };
+
+        if (classGroupId) {
+            sessionQuery.classGroup = classGroupId;
+        }
+
+        if (subjectId) {
+            sessionQuery.subject = subjectId;
+        }
+
+        const sessions = await AttendanceSession.find(sessionQuery).select("_id");
+
+        const sessionIds = sessions.map(function (session) {
+            return session._id;
+        });
+
+        const recordQuery = {
+            college: collegeId,
+            attendanceSession: {
+                $in: sessionIds
+            }
+        };
+
+        if (filters.status !== "all") {
+            recordQuery.status = filters.status;
+        }
+
+        const attendanceRecords = await AttendanceRecord.find(recordQuery)
+            .populate("student")
+            .populate("subject")
+            .populate("classGroup")
+            .populate("classroom")
+            .populate({
+                path: "attendanceSession",
+                populate: [
+                    { path: "teacher" },
+                    { path: "schedule" },
+                    { path: "subject" },
+                    { path: "classGroup" },
+                    { path: "classroom" }
+                ]
+            })
+            .sort({
+                createdAt: -1
+            });
+
+        const rows = [];
+
+        rows.push([
+            "Date",
+            "Time",
+            "Student Name",
+            "Enrollment Number",
+            "Student Email",
+            "Class Group",
+            "Subject",
+            "Subject Code",
+            "Classroom",
+            "Status",
+            "Verification Method",
+            "Distance From Teacher/Classroom (m)",
+            "GPS Accuracy (m)",
+            "Marked At"
+        ]);
+
+        attendanceRecords.forEach(function (record) {
+            const session = record.attendanceSession;
+            const sessionDate = session && session.startTime ? session.startTime : record.createdAt;
+
+            rows.push([
+                sessionDate ? new Date(sessionDate).toLocaleDateString() : "",
+                sessionDate ? new Date(sessionDate).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit"
+                }) : "",
+
+                record.student ? record.student.fullName : "Student Missing",
+                record.student && record.student.enrollmentNumber ? record.student.enrollmentNumber : "",
+                record.student && record.student.email ? record.student.email : "",
+
+                record.classGroup ? record.classGroup.name : "",
+                record.subject ? record.subject.subjectName : "",
+                record.subject && record.subject.subjectCode ? record.subject.subjectCode : "",
+
+                record.classroom ? record.classroom.classroomName : "",
+
+                record.status || "",
+                record.verificationMethod || "",
+
+                record.distanceFromClassroom !== undefined && record.distanceFromClassroom !== null
+                    ? Math.round(record.distanceFromClassroom)
+                    : "",
+
+                record.deviceInfo && record.deviceInfo.gpsAccuracy
+                    ? Math.round(record.deviceInfo.gpsAccuracy)
+                    : "",
+
+                record.createdAt ? new Date(record.createdAt).toLocaleString() : ""
+            ]);
+        });
+
+        const filename =
+            "teacher-attendance-report-" +
+            filters.fromDate +
+            "-to-" +
+            filters.toDate +
+            ".csv";
+
+        teacherSendCsvResponse(res, filename, rows);
+
+    } catch (err) {
+        console.log("TEACHER EXPORT ATTENDANCE ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.redirect("/teacher/reports");
+    }
+});
+
+
+router.get("/reports/export-suspicious", isTeacher, async function (req, res) {
+    try {
+        const teacherId = req.user._id || req.user.id;
+        const collegeId = req.user.college;
+
+        const todayInput = teacherGetDateInputValue(new Date());
+
+        const filters = {
+            fromDate: req.query.fromDate || todayInput,
+            toDate: req.query.toDate || todayInput,
+            classGroupId: req.query.classGroupId || "all",
+            subjectId: req.query.subjectId || "all"
+        };
+
+        const fromDate = teacherGetStartOfDate(filters.fromDate);
+        const toDate = teacherGetEndOfDate(filters.toDate);
+
+        const classGroupId = teacherSafeObjectId(filters.classGroupId);
+        const subjectId = teacherSafeObjectId(filters.subjectId);
+
+        const attemptQuery = {
+            college: collegeId,
+            teacher: teacherId,
+            result: {
+                $ne: "SUCCESS"
+            },
+            createdAt: {
+                $gte: fromDate,
+                $lte: toDate
+            }
+        };
+
+        if (classGroupId) {
+            attemptQuery.classGroup = classGroupId;
+        }
+
+        if (subjectId) {
+            attemptQuery.subject = subjectId;
+        }
+
+        const suspiciousAttempts = await AttendanceAttempt.find(attemptQuery)
+            .populate("student")
+            .populate("attendanceSession")
+            .populate("subject")
+            .populate("classGroup")
+            .populate("classroom")
+            .sort({
+                createdAt: -1
+            });
+
+        const rows = [];
+
+        rows.push([
+            "Date",
+            "Time",
+            "Student Name",
+            "Enrollment Number",
+            "Class Group",
+            "Subject",
+            "Classroom",
+            "Result",
+            "Reason Code",
+            "Reason Message",
+            "Distance From Teacher (m)",
+            "Allowed Radius (m)",
+            "GPS Accuracy (m)",
+            "Max Allowed Accuracy (m)",
+            "Student Latitude",
+            "Student Longitude",
+            "Teacher Latitude",
+            "Teacher Longitude",
+            "IP Address",
+            "User Agent"
+        ]);
+
+        suspiciousAttempts.forEach(function (attempt) {
+            rows.push([
+                attempt.createdAt ? new Date(attempt.createdAt).toLocaleDateString() : "",
+                attempt.createdAt ? new Date(attempt.createdAt).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit"
+                }) : "",
+
+                attempt.studentName || (attempt.student ? attempt.student.fullName : ""),
+                attempt.enrollmentNumber || (attempt.student ? attempt.student.enrollmentNumber : ""),
+
+                attempt.classGroup ? attempt.classGroup.name : "",
+                attempt.subject ? attempt.subject.subjectName : "",
+                attempt.classroom ? attempt.classroom.classroomName : "",
+
+                attempt.result || "",
+                attempt.reasonCode || "",
+                attempt.reasonMessage || "",
+
+                Math.round(attempt.distanceFromTeacher || 0),
+                Math.round(attempt.allowedRadius || 0),
+                Math.round(attempt.gpsAccuracy || 0),
+                Math.round(attempt.maxAllowedAccuracy || 0),
+
+                attempt.studentLatitude || "",
+                attempt.studentLongitude || "",
+                attempt.teacherLatitude || "",
+                attempt.teacherLongitude || "",
+
+                attempt.ip || "",
+                attempt.userAgent || ""
+            ]);
+        });
+
+        const filename =
+            "teacher-suspicious-attempts-" +
+            filters.fromDate +
+            "-to-" +
+            filters.toDate +
+            ".csv";
+
+        teacherSendCsvResponse(res, filename, rows);
+
+    } catch (err) {
+        console.log("TEACHER EXPORT SUSPICIOUS ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.redirect("/teacher/reports");
+    }
+});
+
+router.get("/manual-attendance", isTeacher, async function (req, res) {
+    try {
+        const today = getTodayName();
+        const now = new Date();
+        const todayInput = teacherGetDateInputValue(now);
+        const selectedDateInput = teacherNormalizeManualDateInput(req.query.date);
+        const selectedDateStart = teacherGetStartOfDate(selectedDateInput);
+        const selectedDateEnd = teacherGetEndOfDate(selectedDateInput);
+        const selectedDayName = teacherGetDayNameFromDate(selectedDateStart);
+        const isSelectedToday = selectedDateInput === todayInput;
+        const statusReferenceDate = isSelectedToday ? now : selectedDateEnd;
+        const previousDate = new Date(selectedDateStart);
+        previousDate.setDate(previousDate.getDate() - 1);
+        const nextDate = new Date(selectedDateStart);
+        nextDate.setDate(nextDate.getDate() + 1);
+        const minSelectableDate = new Date(now);
+        minSelectableDate.setDate(minSelectableDate.getDate() - 120);
+        const nextDateInput = teacherGetDateInputValue(nextDate);
+
+        const schedules = await Schedule.find({
+            teacher: req.user._id,
+            college: req.user.college,
+            day: selectedDayName
+        })
+        .populate("subject")
+        .populate("classGroup")
+        .populate("classroom");
+
+        sortSchedulesByTime(schedules);
+
+        const selectedDateSessions = await AttendanceSession.find({
+            teacher: req.user._id,
+            college: req.user.college,
+            startTime: {
+                $gte: selectedDateStart,
+                $lte: selectedDateEnd
+            }
+        })
+        .populate("schedule")
+        .populate("subject")
+        .populate("classGroup")
+        .populate("classroom");
+
+        const manualSchedules = [];
+        let validScheduleCount = 0;
+
+        for (let i = 0; i < schedules.length; i++) {
+            const scheduleItem = schedules[i];
+
+            if (!scheduleItem.subject || !scheduleItem.classGroup || !scheduleItem.classroom) {
+                continue;
+            }
+
+            validScheduleCount++;
+
+            const timeStatus = getScheduleTimeStatus(
+                scheduleItem.startTime,
+                scheduleItem.endTime,
+                statusReferenceDate
+            );
+
+            const selectedDateSession = findSessionForSchedule(
+                selectedDateSessions,
+                scheduleItem
+            );
+
+            if (timeStatus === "ended") {
+                let isRecorded = false;
+
+                if (selectedDateSession) {
+                    if (
+                        selectedDateSession.attendanceRecords &&
+                        selectedDateSession.attendanceRecords.length > 0
+                    ) {
+                        isRecorded = true;
+                    } else {
+                        const savedRecordCount = await AttendanceRecord.countDocuments({
+                            attendanceSession: selectedDateSession._id
+                        });
+
+                        isRecorded = savedRecordCount > 0;
+                    }
+                }
+
+                manualSchedules.push({
+                    schedule: scheduleItem,
+                    todaySession: selectedDateSession,
+                    isRecorded: isRecorded
+                });
+            }
+        }
+
+        const recordedCount = manualSchedules.filter(function (item) {
+            return item.isRecorded;
+        }).length;
+
+        const manualDateOptions = [];
+
+        for (let i = 0; i < 14; i++) {
+            const date = new Date();
+            date.setDate(date.getDate() - i);
+
+            const dateInput = teacherGetDateInputValue(date);
+            let quickLabel = teacherGetDayNameFromDate(date);
+
+            if (i === 0) {
+                quickLabel = "Today";
+            } else if (i === 1) {
+                quickLabel = "Yesterday";
+            }
+
+            manualDateOptions.push({
+                dateInput: dateInput,
+                label: teacherGetManualDateLabel(dateInput),
+                shortLabel: new Date(dateInput + "T00:00:00").toLocaleDateString([], {
+                    day: "2-digit",
+                    month: "short"
+                }),
+                dayName: teacherGetDayNameFromDate(date),
+                quickLabel: quickLabel,
+                isToday: dateInput === todayInput
+            });
+        }
+
+        res.render("teacherManualAttendance", {
+            teacher: req.user,
+            activePage: "manual-attendance",
+            today: today,
+            selectedDateInput: selectedDateInput,
+            selectedDateLabel: teacherGetManualDateLabel(selectedDateInput),
+            selectedDayName: selectedDayName,
+            manualDatePreviousInput: teacherGetDateInputValue(previousDate),
+            manualDateNextInput: nextDateInput <= todayInput ? nextDateInput : "",
+            manualDateMinInput: teacherGetDateInputValue(minSelectableDate),
+            manualDateMaxInput: todayInput,
+            manualSummary: {
+                totalClasses: validScheduleCount,
+                manualEligibleClasses: manualSchedules.length,
+                recordedClasses: recordedCount,
+                pendingClasses: Math.max(manualSchedules.length - recordedCount, 0)
+            },
+            manualDateOptions: manualDateOptions,
+            manualSchedules: manualSchedules,
+            selectedSchedule: null,
+            students: [],
+            existingRecordsByStudent: {},
+            message: getSuccessMessage(req.query.message),
+            error: getErrorMessage(req.query.error)
+        });
+
+    } catch (err) {
+        console.log("TEACHER MANUAL ATTENDANCE PAGE ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.send("Manual attendance page error: " + err.message);
+    }
+});
+
+router.get("/manual-attendance/:scheduleId", isTeacher, async function (req, res) {
+    try {
+        const scheduleId = req.params.scheduleId;
+        const selectedDateInput = teacherNormalizeManualDateInput(req.query.date);
+        const selectedDateStart = teacherGetStartOfDate(selectedDateInput);
+        const selectedDateEnd = teacherGetEndOfDate(selectedDateInput);
+        const selectedDayName = teacherGetDayNameFromDate(selectedDateStart);
+        const todayInput = teacherGetDateInputValue(new Date());
+        const previousDate = new Date(selectedDateStart);
+        previousDate.setDate(previousDate.getDate() - 1);
+        const nextDate = new Date(selectedDateStart);
+        nextDate.setDate(nextDate.getDate() + 1);
+        const minSelectableDate = new Date();
+        minSelectableDate.setDate(minSelectableDate.getDate() - 120);
+        const nextDateInput = teacherGetDateInputValue(nextDate);
+        const statusReferenceDate =
+            selectedDateInput === todayInput
+                ? new Date()
+                : selectedDateEnd;
+        const manualAttendanceDatePath =
+            "/teacher/manual-attendance?date=" + selectedDateInput;
+
+        if (!scheduleId || !scheduleId.match(/^[0-9a-fA-F]{24}$/)) {
+            return res.redirect(manualAttendanceDatePath + "&error=schedule_missing");
+        }
+
+        const scheduleItem = await Schedule.findOne({
+            _id: scheduleId,
+            teacher: req.user._id,
+            college: req.user.college,
+            day: selectedDayName
+        })
+        .populate("subject")
+        .populate("classGroup")
+        .populate("classroom");
+
+        if (
+            !scheduleItem ||
+            !scheduleItem.subject ||
+            !scheduleItem.classGroup ||
+            !scheduleItem.classroom
+        ) {
+            return res.redirect(manualAttendanceDatePath + "&error=schedule_missing");
+        }
+
+        const timeStatus = getScheduleTimeStatus(
+            scheduleItem.startTime,
+            scheduleItem.endTime,
+            statusReferenceDate
+        );
+
+        if (timeStatus !== "ended") {
+            return res.redirect(manualAttendanceDatePath + "&error=class_not_ended");
+        }
+
+        const students = await Student.find({
+            college: req.user.college,
+            classGroup: scheduleItem.classGroup._id,
+            isDeleted: { $ne: true }
+        }).sort({
+            fullName: 1
+        });
+
+        const session = await getLatestSessionForScheduleByDate(
+            scheduleItem,
+            req.user._id,
+            req.user.college,
+            selectedDateInput
+        );
+
+        const existingRecordsByStudent = {};
+
+        if (session) {
+            const existingRecords = await AttendanceRecord.find({
+                attendanceSession: session._id
+            });
+
+            for (let i = 0; i < existingRecords.length; i++) {
+                existingRecordsByStudent[existingRecords[i].student.toString()] = existingRecords[i].status;
+            }
+        }
+
+        res.render("teacherManualAttendance", {
+            teacher: req.user,
+            activePage: "manual-attendance",
+            today: getTodayName(),
+            selectedDateInput: selectedDateInput,
+            selectedDateLabel: teacherGetManualDateLabel(selectedDateInput),
+            selectedDayName: selectedDayName,
+            manualDatePreviousInput: teacherGetDateInputValue(previousDate),
+            manualDateNextInput: nextDateInput <= todayInput ? nextDateInput : "",
+            manualDateMinInput: teacherGetDateInputValue(minSelectableDate),
+            manualDateMaxInput: todayInput,
+            manualSummary: null,
+            manualDateOptions: [],
+            manualSchedules: [],
+            selectedSchedule: scheduleItem,
+            students: students,
+            existingRecordsByStudent: existingRecordsByStudent,
+            message: getSuccessMessage(req.query.message),
+            error: getErrorMessage(req.query.error)
+        });
+
+    } catch (err) {
+        console.log("TEACHER MANUAL ATTENDANCE DETAIL PAGE ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.send("Manual attendance detail page error: " + err.message);
+    }
+});
+
+router.post("/manual-attendance/:scheduleId", isTeacher, async function (req, res) {
+    try {
+        const scheduleId = req.params.scheduleId;
+        const selectedDateInput = teacherNormalizeManualDateInput(req.query.date);
+        const selectedDateStart = teacherGetStartOfDate(selectedDateInput);
+        const selectedDateEnd = teacherGetEndOfDate(selectedDateInput);
+        const selectedDayName = teacherGetDayNameFromDate(selectedDateStart);
+        const todayInput = teacherGetDateInputValue(new Date());
+        const statusReferenceDate =
+            selectedDateInput === todayInput
+                ? new Date()
+                : selectedDateEnd;
+        const manualAttendanceDatePath =
+            "/teacher/manual-attendance?date=" + selectedDateInput;
+        let presentStudentIds = req.body.presentStudents || [];
+
+        if (!Array.isArray(presentStudentIds)) {
+            presentStudentIds = [presentStudentIds];
+        }
+
+        if (!scheduleId || !scheduleId.match(/^[0-9a-fA-F]{24}$/)) {
+            return res.redirect(manualAttendanceDatePath + "&error=schedule_missing");
+        }
+
+        const scheduleItem = await Schedule.findOne({
+            _id: scheduleId,
+            teacher: req.user._id,
+            college: req.user.college,
+            day: selectedDayName
+        })
+            .populate("subject")
+            .populate("classGroup")
+            .populate("classroom");
+
+        if (
+            !scheduleItem ||
+            !scheduleItem.subject ||
+            !scheduleItem.classGroup ||
+            !scheduleItem.classroom
+        ) {
+            return res.redirect(manualAttendanceDatePath + "&error=schedule_missing");
+        }
+
+        const timeStatus = getScheduleTimeStatus(
+            scheduleItem.startTime,
+            scheduleItem.endTime,
+            statusReferenceDate
+        );
+
+        if (timeStatus !== "ended") {
+            return res.redirect(manualAttendanceDatePath + "&error=class_not_ended");
+        }
+
+        const students = await Student.find({
+            college: req.user.college,
+            classGroup: scheduleItem.classGroup._id,
+            isDeleted: { $ne: true }
+        }).sort({
+            fullName: 1
+        });
+
+        if (!students || students.length === 0) {
+            return res.redirect(
+                "/teacher/manual-attendance/" +
+                    scheduleItem._id +
+                    "?date=" +
+                    selectedDateInput +
+                    "&error=no_students"
+            );
+        }
+
+        const presentIdStrings = presentStudentIds.map(function (id) {
+            return id.toString();
+        });
+
+        let session = await getLatestSessionForScheduleByDate(
+            scheduleItem,
+            req.user._id,
+            req.user.college,
+            selectedDateInput
+        );
+
+        if (!session) {
+            const scheduleStartTime = getScheduleDateTimeForToday(scheduleItem.startTime);
+            const scheduleEndTime = getScheduleDateTimeForToday(scheduleItem.endTime);
+            const manualSessionStart = teacherGetStartOfDate(selectedDateInput);
+            const manualSessionEnd = teacherGetStartOfDate(selectedDateInput);
+
+            if (scheduleStartTime) {
+                manualSessionStart.setHours(
+                    scheduleStartTime.getHours(),
+                    scheduleStartTime.getMinutes(),
+                    0,
+                    0
+                );
+            }
+
+            if (scheduleEndTime) {
+                manualSessionEnd.setHours(
+                    scheduleEndTime.getHours(),
+                    scheduleEndTime.getMinutes(),
+                    0,
+                    0
+                );
+            } else {
+                manualSessionEnd.setHours(
+                    manualSessionStart.getHours(),
+                    manualSessionStart.getMinutes() + 45,
+                    0,
+                    0
+                );
+            }
+
+            session = await AttendanceSession.create({
+                schedule: scheduleItem._id,
+                teacher: req.user._id,
+                subject: scheduleItem.subject._id,
+                college: req.user.college,
+                classGroup: scheduleItem.classGroup._id,
+                classroom: scheduleItem.classroom._id,
+                latitude: scheduleItem.classroom.latitude || 0,
+                longitude: scheduleItem.classroom.longitude || 0,
+                radius: scheduleItem.classroom.radius || 100,
+                startTime: manualSessionStart,
+                endTime: manualSessionEnd,
+                status: "CLOSED",
+                isActive: false,
+                closedAt: new Date(),
+                closedBy: req.user._id
+            });
+        }
+
+        const recordIds = [];
+        const presentStudentSnapshots = [];
+        const absentStudentSnapshots = [];
+
+        for (let i = 0; i < students.length; i++) {
+            const oneStudent = students[i];
+            const isPresent = presentIdStrings.includes(oneStudent._id.toString());
+
+            const record = await AttendanceRecord.findOneAndUpdate(
+                {
+                    student: oneStudent._id,
+                    attendanceSession: session._id
+                },
+                {
+                    $set: {
+                        student: oneStudent._id,
+                        attendanceSession: session._id,
+                        subject: scheduleItem.subject._id,
+                        college: req.user.college,
+                        classGroup: scheduleItem.classGroup._id,
+                        classroom: scheduleItem.classroom._id,
+                        status: isPresent ? "PRESENT" : "ABSENT",
+                        latitude: scheduleItem.classroom.latitude || 0,
+                        longitude: scheduleItem.classroom.longitude || 0,
+                        distanceFromClassroom: 0,
+                        verificationMethod: "MANUAL",
+                        markedAt: new Date(),
+                        deviceInfo: {
+                            userAgent: req.headers["user-agent"],
+                            ip: req.ip
+                        }
+                    }
+                },
+                {
+                    new: true,
+                    upsert: true,
+                    setDefaultsOnInsert: true
+                }
+            );
+
+            recordIds.push(record._id);
+
+            const studentSnapshot = {
+                student: oneStudent._id,
+                fullName: oneStudent.fullName,
+                enrollmentNumber: oneStudent.enrollmentNumber,
+                status: isPresent ? "PRESENT" : "ABSENT",
+                attendanceRecord: record._id,
+                markedAt: new Date(),
+                verificationMethod: "MANUAL",
+                distanceFromClassroom: 0
+            };
+
+            if (isPresent) {
+                presentStudentSnapshots.push(studentSnapshot);
+            } else {
+                absentStudentSnapshots.push(studentSnapshot);
+            }
+        }
+
+        session.attendanceRecords = recordIds;
+        session.presentStudents = presentStudentSnapshots;
+        session.absentStudents = absentStudentSnapshots;
+
+        session.attendanceSummary = {
+            totalPresent: presentStudentSnapshots.length,
+            totalAbsent: absentStudentSnapshots.length,
+            totalMarked: presentStudentSnapshots.length + absentStudentSnapshots.length
+        };
+
+        session.isActive = false;
+        session.status = "CLOSED";
+        session.closedAt = new Date();
+        session.closedBy = req.user._id;
+
+        await session.save();
+        socketManager.emitAttendanceEnded(session);
+
+        res.redirect(
+            "/teacher/manual-attendance/" +
+                scheduleItem._id +
+                "?date=" +
+                selectedDateInput +
+                "&message=manual_saved"
+        );
+
+    } catch (err) {
+        console.log("TEACHER MANUAL ATTENDANCE SAVE ERROR:");
+        console.log(err.message);
+        console.log(err.stack);
+
+        res.send("Could not save manual attendance: " + err.message);
+    }
+});
+
 
 module.exports = router;

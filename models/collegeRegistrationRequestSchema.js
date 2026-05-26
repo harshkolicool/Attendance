@@ -103,7 +103,7 @@ collegeRegistrationRequestSchema.index({
     status: 1
 });
 
-const CollegeRegistrationRequest = mongoose.model(
+const CollegeRegistrationRequest = mongoose.models.CollegeRegistrationRequest || mongoose.model(
     "CollegeRegistrationRequest",
     collegeRegistrationRequestSchema
 );

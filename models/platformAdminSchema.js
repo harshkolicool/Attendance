@@ -54,6 +54,6 @@ platformAdminSchema.methods.comparePassword = async function (enteredPassword) {
     return await bcrypt.compare(enteredPassword, this.password);
 };
 
-const PlatformAdmin = mongoose.model("PlatformAdmin", platformAdminSchema);
+const PlatformAdmin = mongoose.models.PlatformAdmin || mongoose.model("PlatformAdmin", platformAdminSchema);
 
 module.exports = PlatformAdmin;

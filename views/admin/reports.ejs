@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Attendance Reports | Admin</title>
+
+    <link rel="stylesheet" href="/css/adminTheme.css">
+
+    <link rel="stylesheet" href="/css/uiShell.css">
+    <link rel="stylesheet" href="/css/finalUiFix.css">
+
+    <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+    >
+</head>
+<body>
+
+<div class="admin-layout">
+
+    <%- include("partials/sidebar", { activePage: activePage }) %>
+
+    <main class="admin-main">
+
+        <header class="admin-header">
+            <div>
+                <span class="admin-kicker">Admin Panel</span>
+                <h1>Attendance Reports</h1>
+                <p>Track class-wise, subject-wise, student-wise attendance and suspicious attempts.</p>
+            </div>
+        </header>
+
+        <%
+            const exportQuery = [
+                "fromDate=" + encodeURIComponent(filters.fromDate),
+                "toDate=" + encodeURIComponent(filters.toDate),
+                "classGroupId=" + encodeURIComponent(filters.classGroupId),
+                "subjectId=" + encodeURIComponent(filters.subjectId),
+                "teacherId=" + encodeURIComponent(filters.teacherId),
+                "studentId=" + encodeURIComponent(filters.studentId),
+                "status=" + encodeURIComponent(filters.status)
+            ].join("&");
+        %>
+
+        <section class="admin-card report-export-card">
+            <div class="report-export-content">
+                <div>
+                    <h3>Export Reports</h3>
+                    <p>Download attendance records or suspicious attempts using the selected filters.</p>
+                </div>
+
+                <div class="report-export-actions">
+                    <a
+                        href="/admin/reports/export-attendance?<%= exportQuery %>"
+                        class="admin-secondary-btn"
+                    >
+                        <i class="fa-solid fa-file-csv"></i>
+                        Export Attendance CSV
+                    </a>
+
+                    <a
+                        href="/admin/reports/export-suspicious?<%= exportQuery %>"
+                        class="admin-secondary-btn danger"
+                    >
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                        Export Suspicious CSV
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        <section class="admin-card report-filter-card">
+            <div class="admin-card-head">
+                <div>
+                    <h3>Filter Reports</h3>
+                    <p>Use filters to generate attendance reports for a specific date, class, subject or student.</p>
+                </div>
+            </div>
+
+            <form action="/admin/reports" method="GET" class="admin-form-grid reports-filter-grid">
+
+                <div class="admin-field">
+                    <label>From Date</label>
+                    <input
+                        type="date"
+                        name="fromDate"
+                        value="<%= filters.fromDate %>"
+                        required
+                    >
+                </div>
+
+                <div class="admin-field">
+                    <label>To Date</label>
+                    <input
+                        type="date"
+                        name="toDate"
+                        value="<%= filters.toDate %>"
+                        required
+                    >
+                </div>
+
+                <div class="admin-field">
+                    <label>Class Group</label>
+                    <select name="classGroupId">
+                        <option value="all">All Class Groups</option>
+
+                        <% classGroups.forEach(function(group) { %>
+                            <option
+                                value="<%= group._id %>"
+                                <%= filters.classGroupId === group._id.toString() ? "selected" : "" %>
+                            >
+                                <%= group.name %> - Sem <%= group.semester %> <%= group.section %>
+                            </option>
+                        <% }) %>
+                    </select>
+                </div>
+
+                <div class="admin-field">
+                    <label>Subject</label>
+                    <select name="subjectId">
+                        <option value="all">All Subjects</option>
+
+                        <% subjects.forEach(function(subject) { %>
+                            <option
+                                value="<%= subject._id %>"
+                                <%= filters.subjectId === subject._id.toString() ? "selected" : "" %>
+                            >
+                                <%= subject.subjectName %>
+                                <% if (subject.subjectCode) { %>
+                                    - <%= subject.subjectCode %>
+                                <% } %>
+                            </option>
+                        <% }) %>
+                    </select>
+                </div>
+
+                <div class="admin-field">
+                    <label>Teacher</label>
+                    <select name="teacherId">
+                        <option value="all">All Teachers</option>
+
+                        <% teachers.forEach(function(teacher) { %>
+                            <option
+                                value="<%= teacher._id %>"
+                                <%= filters.teacherId === teacher._id.toString() ? "selected" : "" %>
+                            >
+                                <%= teacher.fullName %> - <%= teacher.department %>
+                            </option>
+                        <% }) %>
+                    </select>
+                </div>
+
+                <div class="admin-field">
+                    <label>Student</label>
+                    <select name="studentId">
+                        <option value="all">All Students</option>
+
+                        <% students.forEach(function(student) { %>
+                            <option
+                                value="<%= student._id %>"
+                                <%= filters.studentId === student._id.toString() ? "selected" : "" %>
+                            >
+                                <%= student.fullName %>
+                                <% if (student.enrollmentNumber) { %>
+                                    - <%= student.enrollmentNumber %>
+                                <% } %>
+                            </option>
+                        <% }) %>
+                    </select>
+                </div>
+
+                <div class="admin-field">
+                    <label>Status</label>
+                    <select name="status">
+                        <option value="all" <%= filters.status === "all" ? "selected" : "" %>>All</option>
+                        <option value="PRESENT" <%= filters.status === "PRESENT" ? "selected" : "" %>>Present</option>
+                        <option value="ABSENT" <%= filters.status === "ABSENT" ? "selected" : "" %>>Absent</option>
+                    </select>
+                </div>
+
+                <div class="admin-field admin-button-field">
+                    <label>&nbsp;</label>
+                    <button class="admin-primary-btn" type="submit">
+                        <i class="fa-solid fa-filter"></i>
+                        Apply Filters
+                    </button>
+                </div>
+
+                <div class="admin-field admin-button-field">
+                    <label>&nbsp;</label>
+                    <a class="admin-secondary-btn reports-reset-btn" href="/admin/reports">
+                        <i class="fa-solid fa-rotate-left"></i>
+                        Reset
+                    </a>
+                </div>
+
+            </form>
+        </section>
+
+        <section class="reports-summary-grid">
+
+            <article class="report-stat-card blue">
+                <div>
+                    <span>Total Sessions</span>
+                    <strong><%= summary.totalSessions %></strong>
+                </div>
+                <i class="fa-solid fa-calendar-check"></i>
+            </article>
+
+            <article class="report-stat-card green">
+                <div>
+                    <span>Present</span>
+                    <strong><%= summary.totalPresent %></strong>
+                </div>
+                <i class="fa-solid fa-user-check"></i>
+            </article>
+
+            <article class="report-stat-card red">
+                <div>
+                    <span>Absent</span>
+                    <strong><%= summary.totalAbsent %></strong>
+                </div>
+                <i class="fa-solid fa-user-xmark"></i>
+            </article>
+
+            <article class="report-stat-card purple">
+                <div>
+                    <span>Attendance</span>
+                    <strong><%= summary.attendancePercentage %>%</strong>
+                </div>
+                <i class="fa-solid fa-chart-line"></i>
+            </article>
+
+            <article class="report-stat-card orange">
+                <div>
+                    <span>Suspicious</span>
+                    <strong><%= summary.suspiciousCount %></strong>
+                </div>
+                <i class="fa-solid fa-triangle-exclamation"></i>
+            </article>
+
+        </section>
+
+        <section class="admin-card">
+            <div class="admin-card-head">
+                <div>
+                    <h3>Subject-wise Summary</h3>
+                    <p>Attendance percentage grouped by subject.</p>
+                </div>
+            </div>
+
+            <% if (!subjectSummary || subjectSummary.length === 0) { %>
+                <div class="admin-empty">No subject report found for selected filters.</div>
+            <% } else { %>
+                <div class="report-table-wrap">
+                    <table class="report-table">
+                        <thead>
+                            <tr>
+                                <th>Subject</th>
+                                <th>Code</th>
+                                <th>Total</th>
+                                <th>Present</th>
+                                <th>Absent</th>
+                                <th>Attendance</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            <% subjectSummary.forEach(function(item) { %>
+                                <tr>
+                                    <td><strong><%= item.name %></strong></td>
+                                    <td><%= item.code || "-" %></td>
+                                    <td><%= item.total %></td>
+                                    <td class="text-success"><%= item.present %></td>
+                                    <td class="text-danger"><%= item.absent %></td>
+                                    <td>
+                                        <span class="report-percent-pill <%= item.percentage >= 75 ? 'good' : 'bad' %>">
+                                            <%= item.percentage %>%
+                                        </span>
+                                    </td>
+                                </tr>
+                            <% }) %>
+                        </tbody>
+                    </table>
+                </div>
+            <% } %>
+        </section>
+
+        <section class="admin-card">
+            <div class="admin-card-head">
+                <div>
+                    <h3>Class-wise Summary</h3>
+                    <p>Attendance percentage grouped by class group.</p>
+                </div>
+            </div>
+
+            <% if (!classSummary || classSummary.length === 0) { %>
+                <div class="admin-empty">No class report found for selected filters.</div>
+            <% } else { %>
+                <div class="report-table-wrap">
+                    <table class="report-table">
+                        <thead>
+                            <tr>
+                                <th>Class Group</th>
+                                <th>Total</th>
+                                <th>Present</th>
+                                <th>Absent</th>
+                                <th>Attendance</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            <% classSummary.forEach(function(item) { %>
+                                <tr>
+                                    <td><strong><%= item.name %></strong></td>
+                                    <td><%= item.total %></td>
+                                    <td class="text-success"><%= item.present %></td>
+                                    <td class="text-danger"><%= item.absent %></td>
+                                    <td>
+                                        <span class="report-percent-pill <%= item.percentage >= 75 ? 'good' : 'bad' %>">
+                                            <%= item.percentage %>%
+                                        </span>
+                                    </td>
+                                </tr>
+                            <% }) %>
+                        </tbody>
+                    </table>
+                </div>
+            <% } %>
+        </section>
+
+        <section class="admin-card">
+            <div class="admin-card-head">
+                <div>
+                    <h3>Top Student Summary</h3>
+                    <p>Showing first 10 students from selected report data.</p>
+                </div>
+            </div>
+
+            <% if (!studentSummary || studentSummary.length === 0) { %>
+                <div class="admin-empty">No student report found for selected filters.</div>
+            <% } else { %>
+                <div class="report-table-wrap">
+                    <table class="report-table">
+                        <thead>
+                            <tr>
+                                <th>Student</th>
+                                <th>Enrollment</th>
+                                <th>Total</th>
+                                <th>Present</th>
+                                <th>Absent</th>
+                                <th>Attendance</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            <% studentSummary.forEach(function(item) { %>
+                                <tr>
+                                    <td><strong><%= item.name %></strong></td>
+                                    <td><%= item.enrollmentNumber || "-" %></td>
+                                    <td><%= item.total %></td>
+                                    <td class="text-success"><%= item.present %></td>
+                                    <td class="text-danger"><%= item.absent %></td>
+                                    <td>
+                                        <span class="report-percent-pill <%= item.percentage >= 75 ? 'good' : 'bad' %>">
+                                            <%= item.percentage %>%
+                                        </span>
+                                    </td>
+                                </tr>
+                            <% }) %>
+                        </tbody>
+                    </table>
+                </div>
+            <% } %>
+        </section>
+
+        <section class="admin-card">
+            <div class="admin-card-head">
+                <div>
+                    <h3>Detailed Attendance Records</h3>
+                    <p>Latest 1000 attendance records matching selected filters.</p>
+                </div>
+
+                <span class="admin-count-pill">
+                    <%= attendanceRecords.length %> Records
+                </span>
+            </div>
+
+            <% if (!attendanceRecords || attendanceRecords.length === 0) { %>
+                <div class="admin-empty">No attendance records found.</div>
+            <% } else { %>
+                <div class="report-table-wrap">
+                    <table class="report-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Student</th>
+                                <th>Subject</th>
+                                <th>Class</th>
+                                <th>Teacher</th>
+                                <th>Status</th>
+                                <th>Method</th>
+                                <th>Distance</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            <% attendanceRecords.forEach(function(record) { %>
+                                <%
+                                    const session = record.attendanceSession;
+                                    const teacher = session && session.teacher ? session.teacher : null;
+                                    const sessionDate = session && session.startTime ? session.startTime : record.createdAt;
+                                %>
+
+                                <tr>
+                                    <td>
+                                        <%= new Date(sessionDate).toLocaleDateString() %>
+                                        <br>
+                                        <small><%= new Date(sessionDate).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) %></small>
+                                    </td>
+
+                                    <td>
+                                        <strong>
+                                            <%= record.student ? record.student.fullName : "Student Missing" %>
+                                        </strong>
+                                        <br>
+                                        <small>
+                                            <%= record.student && record.student.enrollmentNumber ? record.student.enrollmentNumber : "-" %>
+                                        </small>
+                                    </td>
+
+                                    <td>
+                                        <%= record.subject ? record.subject.subjectName : "Subject Missing" %>
+                                    </td>
+
+                                    <td>
+                                        <%= record.classGroup ? record.classGroup.name : "Class Missing" %>
+                                    </td>
+
+                                    <td>
+                                        <%= teacher ? teacher.fullName : "Teacher Missing" %>
+                                    </td>
+
+                                    <td>
+                                        <span class="report-status <%= record.status === 'PRESENT' ? 'present' : 'absent' %>">
+                                            <%= record.status %>
+                                        </span>
+                                    </td>
+
+                                    <td>
+                                        <%= record.verificationMethod || "-" %>
+                                    </td>
+
+                                    <td>
+                                        <%
+                                            const adminRecordDeviceInfo = record.deviceInfo || {};
+                                            const adminHasVerifiedDistance =
+                                                adminRecordDeviceInfo.verifiedDistanceFromClassroom !== undefined ||
+                                                adminRecordDeviceInfo.minimumPossibleDistance !== undefined;
+                                            const adminVerifiedDistance =
+                                                adminRecordDeviceInfo.verifiedDistanceFromClassroom !== undefined &&
+                                                adminRecordDeviceInfo.verifiedDistanceFromClassroom !== null
+                                                    ? adminRecordDeviceInfo.verifiedDistanceFromClassroom
+                                                    : (
+                                                        adminRecordDeviceInfo.minimumPossibleDistance !== undefined &&
+                                                        adminRecordDeviceInfo.minimumPossibleDistance !== null
+                                                            ? adminRecordDeviceInfo.minimumPossibleDistance
+                                                            : record.distanceFromClassroom
+                                                    );
+                                            const adminMeasuredDistance =
+                                                adminRecordDeviceInfo.measuredDistanceFromClassroom !== undefined &&
+                                                adminRecordDeviceInfo.measuredDistanceFromClassroom !== null
+                                                    ? adminRecordDeviceInfo.measuredDistanceFromClassroom
+                                                    : null;
+                                        %>
+                                        <% if (adminVerifiedDistance !== undefined && adminVerifiedDistance !== null) { %>
+                                            <span class="gps-distance-cell">
+                                                <span class="gps-distance-pill">
+                                                    <%= adminHasVerifiedDistance ? "Verified" : "Recorded" %>
+                                                    <%= Math.round(adminVerifiedDistance) %>m
+                                                </span>
+
+                                                <% if (adminMeasuredDistance !== null && Math.round(adminMeasuredDistance) !== Math.round(adminVerifiedDistance)) { %>
+                                                    <small>GPS read <%= Math.round(adminMeasuredDistance) %>m</small>
+                                                <% } %>
+                                            </span>
+                                        <% } else { %>
+                                            -
+                                        <% } %>
+                                    </td>
+                                </tr>
+                            <% }) %>
+                        </tbody>
+                    </table>
+                </div>
+            <% } %>
+        </section>
+
+        <section class="admin-card">
+            <div class="admin-card-head">
+                <div>
+                    <h3>Suspicious Attempts</h3>
+                    <p>Rejected or suspicious attendance attempts for selected filters.</p>
+                </div>
+
+                <span class="admin-count-pill danger">
+                    <%= suspiciousAttempts.length %> Attempts
+                </span>
+            </div>
+
+            <% if (!suspiciousAttempts || suspiciousAttempts.length === 0) { %>
+                <div class="admin-empty">No suspicious attempts found.</div>
+            <% } else { %>
+                <div class="report-table-wrap">
+                    <table class="report-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Student</th>
+                                <th>Reason</th>
+                                <th>Distance</th>
+                                <th>Radius</th>
+                                <th>GPS Accuracy</th>
+                                <th>Result</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            <% suspiciousAttempts.forEach(function(attempt) { %>
+                                <tr>
+                                    <td>
+                                        <%= new Date(attempt.createdAt).toLocaleDateString() %>
+                                        <br>
+                                        <small><%= new Date(attempt.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) %></small>
+                                    </td>
+
+                                    <td>
+                                        <strong><%= attempt.studentName %></strong>
+                                        <br>
+                                        <small><%= attempt.enrollmentNumber %></small>
+                                    </td>
+
+                                    <td>
+                                        <strong><%= attempt.reasonCode %></strong>
+                                        <br>
+                                        <small><%= attempt.reasonMessage %></small>
+                                    </td>
+
+                                    <td>
+                                        <%= Math.round(attempt.distanceFromTeacher || 0) %>m
+                                    </td>
+
+                                    <td>
+                                        <%= Math.round(attempt.allowedRadius || 0) %>m
+                                    </td>
+
+                                    <td>
+                                        <%= Math.round(attempt.gpsAccuracy || 0) %>m
+                                    </td>
+
+                                    <td>
+                                        <span class="report-status absent">
+                                            <%= attempt.result %>
+                                        </span>
+                                    </td>
+                                </tr>
+                            <% }) %>
+                        </tbody>
+                    </table>
+                </div>
+            <% } %>
+        </section>
+
+    </main>
+
+</div>
+
+<script src="/js/adminSearch.js"></script>
+<script src="/js/uiShell.js"></script>
+</body>
+</html>

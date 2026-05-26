@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manual Attendance | Attendify</title>
+
+    <link rel="stylesheet" href="/css/teacherDashboard.css">
+
+    <link rel="stylesheet" href="/css/uiShell.css">
+    <link rel="stylesheet" href="/css/finalUiFix.css">
+
+    <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+    >
+</head>
+<body>
+
+<div class="teacher-page">
+
+    <%- include("teacher/partials/sidebar", { activePage: activePage || "manual-attendance", teacher }) %>
+
+    <main class="teacher-main teacher-manual-page">
+
+        <header class="teacher-header">
+            <div>
+                <span class="teacher-kicker">Teacher Panel</span>
+                <h1>Manual Attendance</h1>
+                <p>Mark attendance manually after class time has ended.</p>
+            </div>
+        </header>
+
+        <% if (error) { %>
+            <div class="alert-box error">
+                <i class="fa-solid fa-circle-exclamation"></i>
+                <%= error %>
+            </div>
+        <% } %>
+
+        <% if (message) { %>
+            <div class="alert-box success">
+                <i class="fa-solid fa-circle-check"></i>
+                <%= message %>
+            </div>
+        <% } %>
+
+        <%
+            const manualDateBasePath = "/teacher/manual-attendance";
+        %>
+
+        <section class="teacher-card manual-date-switcher-card">
+            <div class="manual-date-nav-row">
+                <a
+                    href="<%= manualDateBasePath %>?date=<%= manualDatePreviousInput %>"
+                    class="teacher-secondary-btn manual-date-nav-btn"
+                >
+                    <i class="fa-solid fa-chevron-left"></i>
+                    Previous Day
+                </a>
+
+                <button
+                    type="button"
+                    class="teacher-primary-btn manual-date-picker-btn"
+                    onclick="openManualDatePicker()"
+                >
+                    <i class="fa-regular fa-calendar-plus"></i>
+                    Choose Past Date
+                </button>
+
+                <% if (manualDateNextInput) { %>
+                    <a
+                        href="<%= manualDateBasePath %>?date=<%= manualDateNextInput %>"
+                        class="teacher-secondary-btn manual-date-nav-btn"
+                    >
+                        Next Day
+                        <i class="fa-solid fa-chevron-right"></i>
+                    </a>
+                <% } else { %>
+                    <span class="manual-date-nav-btn disabled">
+                        Next Day
+                        <i class="fa-solid fa-chevron-right"></i>
+                    </span>
+                <% } %>
+            </div>
+
+            <input
+                type="date"
+                id="manualDatePicker"
+                class="manual-date-hidden-input"
+                value="<%= selectedDateInput %>"
+                min="<%= manualDateMinInput %>"
+                max="<%= manualDateMaxInput %>"
+                onchange="changeManualDate(this.value)"
+            >
+
+            <p class="manual-date-helper">
+                Use buttons or calendar picker to mark attendance for any previous date.
+            </p>
+        </section>
+
+        <% if (!selectedSchedule) { %>
+
+            <section class="teacher-card">
+                <div class="teacher-card-header">
+                    <div>
+                        <h3>Classes Available for Manual Attendance</h3>
+                        <p>Classes are organized by date. Select a date first, then mark attendance.</p>
+                    </div>
+                </div>
+
+                <div class="manual-date-filter-row">
+                    <% if (manualDateOptions && manualDateOptions.length > 0) { %>
+                        <% manualDateOptions.forEach(function(option) { %>
+                            <a
+                                href="/teacher/manual-attendance?date=<%= option.dateInput %>"
+                                class="manual-date-chip <%= selectedDateInput === option.dateInput ? 'active' : '' %>"
+                            >
+                                <span><%= option.quickLabel || option.dayName %></span>
+                                <strong><%= option.shortLabel || option.label %></strong>
+                            </a>
+                        <% }) %>
+                    <% } %>
+                </div>
+
+                <div class="manual-date-heading">
+                    <h4><%= selectedDateLabel %></h4>
+                    <span class="manual-date-pill">
+                        <i class="fa-regular fa-calendar"></i>
+                        <%= selectedDayName %>
+                    </span>
+                </div>
+
+                <% if (manualSummary) { %>
+                    <div class="manual-summary-row">
+                        <span class="manual-summary-pill">
+                            <strong><%= manualSummary.totalClasses %></strong>
+                            Total Classes
+                        </span>
+
+                        <span class="manual-summary-pill">
+                            <strong><%= manualSummary.manualEligibleClasses %></strong>
+                            Eligible (Ended)
+                        </span>
+
+                        <span class="manual-summary-pill success">
+                            <strong><%= manualSummary.recordedClasses %></strong>
+                            Recorded
+                        </span>
+
+                        <span class="manual-summary-pill warning">
+                            <strong><%= manualSummary.pendingClasses %></strong>
+                            Pending
+                        </span>
+                    </div>
+                <% } %>
+
+                <% if (!manualSchedules || manualSchedules.length === 0) { %>
+                    <div class="teacher-empty">
+                        No class is available for manual attendance on this date.
+                    </div>
+                <% } else { %>
+
+                    <div class="manual-schedule-grid">
+
+                        <% manualSchedules.forEach(function(item) { %>
+                            <% const schedule = item.schedule; %>
+
+                            <article class="manual-schedule-card">
+                                <div>
+                                    <span class="manual-time">
+                                        <%= schedule.startTime %> - <%= schedule.endTime %>
+                                    </span>
+
+                                    <h3>
+                                        <%= schedule.subject ? schedule.subject.subjectName : "Subject Missing" %>
+                                    </h3>
+
+                                    <p>
+                                        <i class="fa-solid fa-users"></i>
+                                        <%= schedule.classGroup ? schedule.classGroup.name : "Class Missing" %>
+                                    </p>
+
+                                    <p>
+                                        <i class="fa-solid fa-location-dot"></i>
+                                        <%= schedule.classroom ? schedule.classroom.classroomName : "Room Missing" %>
+                                    </p>
+                                </div>
+
+                                <% if (item.isRecorded) { %>
+                                    <a href="/teacher/manual-attendance/<%= schedule._id %>?date=<%= selectedDateInput %>" class="manual-edit-link">
+                                        <i class="fa-solid fa-pen-to-square"></i>
+                                        Edit Attendance
+                                    </a>
+                                <% } else { %>
+                                    <a href="/teacher/manual-attendance/<%= schedule._id %>?date=<%= selectedDateInput %>" class="manual-mark-link">
+                                        <i class="fa-solid fa-clipboard-check"></i>
+                                        Mark Attendance
+                                    </a>
+                                <% } %>
+                            </article>
+
+                        <% }) %>
+
+                    </div>
+
+                <% } %>
+            </section>
+
+        <% } else { %>
+
+            <section class="teacher-card manual-attendance-form-card">
+                <div class="teacher-card-header">
+                    <div>
+                        <h3>
+                            <%= selectedSchedule.subject ? selectedSchedule.subject.subjectName : "Subject Missing" %>
+                        </h3>
+
+                        <p>
+                            <%= selectedDateLabel %>
+                            ·
+                            <%= selectedSchedule.classGroup ? selectedSchedule.classGroup.name : "Class Missing" %>
+                            ·
+                            <%= selectedSchedule.classroom ? selectedSchedule.classroom.classroomName : "Room Missing" %>
+                            ·
+                            <%= selectedSchedule.startTime %> - <%= selectedSchedule.endTime %>
+                        </p>
+                    </div>
+
+                    <a href="/teacher/manual-attendance?date=<%= selectedDateInput %>" class="teacher-secondary-btn manual-back-btn">
+                        <i class="fa-solid fa-arrow-left"></i>
+                        Back
+                    </a>
+                </div>
+
+                <% if (!students || students.length === 0) { %>
+                    <div class="teacher-empty">
+                        No students found in this class group.
+                    </div>
+                <% } else { %>
+
+                    <form
+                        action="/teacher/manual-attendance/<%= selectedSchedule._id %>?date=<%= selectedDateInput %>"
+                        method="POST"
+                        class="manual-attendance-form"
+                    >
+
+                        <div class="manual-toolbar">
+                            <div>
+                                <h4>Students</h4>
+                                <p>Checked students will be marked Present. Unchecked students will be marked Absent.</p>
+                            </div>
+
+                            <div class="manual-toolbar-actions">
+                                <button type="button" class="manual-small-btn" onclick="setAllManualStudents(true)">
+                                    Mark All Present
+                                </button>
+
+                                <button type="button" class="manual-small-btn danger" onclick="setAllManualStudents(false)">
+                                    Clear All
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="manual-student-grid">
+                            <% students.forEach(function(student) { %>
+                                <%
+                                    const existingStatus = existingRecordsByStudent[student._id.toString()];
+                                    const checked = existingStatus === "PRESENT";
+                                %>
+
+                                <label class="manual-student-card">
+                                    <input
+                                        type="checkbox"
+                                        name="presentStudents"
+                                        value="<%= student._id %>"
+                                        <%= checked ? "checked" : "" %>
+                                    >
+
+                                    <span class="manual-student-check">
+                                        <i class="fa-solid fa-check"></i>
+                                    </span>
+
+                                    <span>
+                                        <strong><%= student.fullName %></strong>
+                                        <small><%= student.enrollmentNumber %></small>
+                                    </span>
+                                </label>
+                            <% }) %>
+                        </div>
+
+                        <button class="teacher-primary-btn manual-save-main-btn" type="submit">
+                            <i class="fa-solid fa-floppy-disk"></i>
+                            Save Manual Attendance
+                        </button>
+
+                    </form>
+
+                <% } %>
+            </section>
+
+        <% } %>
+
+    </main>
+
+</div>
+
+<script>
+    function changeManualDate(dateInput) {
+        if (!dateInput) {
+            return;
+        }
+
+        const basePath = "<%= manualDateBasePath %>";
+        window.location.href = basePath + "?date=" + encodeURIComponent(dateInput);
+    }
+
+    function openManualDatePicker() {
+        const pickerInput = document.getElementById("manualDatePicker");
+
+        if (!pickerInput) {
+            return;
+        }
+
+        if (typeof pickerInput.showPicker === "function") {
+            pickerInput.showPicker();
+            return;
+        }
+
+        pickerInput.click();
+    }
+
+    function setAllManualStudents(checked) {
+        document.querySelectorAll("input[name='presentStudents']").forEach(function (input) {
+            input.checked = checked;
+        });
+    }
+</script>
+
+<script src="/js/uiShell.js"></script>
+</body>
+</html>

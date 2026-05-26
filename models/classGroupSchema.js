@@ -58,6 +58,6 @@ const classGroupSchema = new mongoose.Schema({
 
 classGroupSchema.index( { college: 1, department: 1, semester: 1, section: 1 }, { unique: true });
 
-const ClassGroup = mongoose.model("ClassGroup", classGroupSchema);
+const ClassGroup = mongoose.models.ClassGroup || mongoose.model("ClassGroup", classGroupSchema);
 
 module.exports = ClassGroup;

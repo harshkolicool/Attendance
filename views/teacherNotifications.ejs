@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notifications | Attendify</title>
+
+    <link rel="stylesheet" href="/css/teacherDashboard.css">
+    <link rel="stylesheet" href="/css/uiShell.css">
+    <link rel="stylesheet" href="/css/finalUiFix.css">
+
+    <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+    >
+</head>
+<body>
+
+<div class="teacher-page teacher-notifications-layout">
+
+    <%- include("teacher/partials/sidebar", { activePage: activePage || "notifications", teacher }) %>
+
+    <main class="teacher-main teacher-notifications-main">
+
+        <header class="teacher-header teacher-notifications-page-header">
+            <div>
+                <span class="teacher-kicker">Teacher Panel</span>
+                <h1>Notifications</h1>
+                <p>Latest updates about schedules, attendance and admin actions.</p>
+            </div>
+
+            <div class="teacher-notifications-header-actions">
+                <span class="teacher-notification-summary-pill">
+                    <i class="fa-solid fa-bell"></i>
+                    <%= unreadCount || 0 %> Unread
+                </span>
+
+                <form action="/teacher/notifications/mark-all-read" method="POST">
+                    <button class="teacher-notification-toolbar-btn neutral" type="submit">
+                        <i class="fa-solid fa-check-double"></i>
+                        Mark All Read
+                    </button>
+                </form>
+
+                <form
+                    action="/teacher/notifications/clear-all"
+                    method="POST"
+                    onsubmit="return confirm('Clear all notifications?')"
+                >
+                    <button class="teacher-notification-toolbar-btn danger" type="submit">
+                        <i class="fa-solid fa-trash"></i>
+                        Clear All
+                    </button>
+                </form>
+            </div>
+        </header>
+
+        <section class="teacher-card teacher-notifications-page-card">
+
+            <% if (!notifications || notifications.length === 0) { %>
+
+                <div class="teacher-notifications-empty">
+                    <div class="teacher-notifications-empty-icon">
+                        <i class="fa-solid fa-bell-slash"></i>
+                    </div>
+
+                    <h3>No notifications</h3>
+                    <p>You are all caught up.</p>
+                </div>
+
+            <% } else { %>
+
+                <div class="teacher-notifications-list">
+
+                    <% notifications.forEach(function(notification) { %>
+
+                        <article class="teacher-notification-item <%= notification.isRead ? 'is-read' : 'is-unread' %>">
+
+                            <div class="teacher-notification-icon">
+                                <% if (notification.category === "SCHEDULE") { %>
+                                    <i class="fa-solid fa-calendar-days"></i>
+                                <% } else if (notification.category === "ATTENDANCE") { %>
+                                    <i class="fa-solid fa-clipboard-check"></i>
+                                <% } else if (notification.category === "PASSKEY_SETUP") { %>
+                                    <i class="fa-solid fa-fingerprint"></i>
+                                <% } else if (notification.level === "error" || notification.level === "danger") { %>
+                                    <i class="fa-solid fa-triangle-exclamation"></i>
+                                <% } else { %>
+                                    <i class="fa-solid fa-bell"></i>
+                                <% } %>
+                            </div>
+
+                            <div class="teacher-notification-content">
+
+                                <div class="teacher-notification-title-row">
+                                    <div>
+                                        <h3><%= notification.title || "Notification" %></h3>
+
+                                        <span class="teacher-notification-category">
+                                            <%= notification.category || "Notification" %>
+                                        </span>
+                                    </div>
+
+                                    <time>
+                                        <%= notification.createdAt ? new Date(notification.createdAt).toLocaleString("en-IN") : "" %>
+                                    </time>
+                                </div>
+
+                                <p class="teacher-notification-message">
+                                    <%= notification.message || "" %>
+                                </p>
+
+                                <div class="teacher-notification-actions">
+
+                                    <% if (notification.link) { %>
+                                        <a class="teacher-notification-action open" href="<%= notification.link %>">
+                                            <i class="fa-solid fa-arrow-up-right-from-square"></i>
+                                            Open
+                                        </a>
+                                    <% } %>
+
+                                    <% if (!notification.isRead) { %>
+                                        <form action="/teacher/notifications/<%= notification._id %>/read" method="POST">
+                                            <button class="teacher-notification-action read" type="submit">
+                                                <i class="fa-solid fa-check"></i>
+                                                Mark Read
+                                            </button>
+                                        </form>
+                                    <% } else { %>
+                                        <span class="teacher-notification-read-label">
+                                            <i class="fa-solid fa-circle-check"></i>
+                                            Read
+                                        </span>
+                                    <% } %>
+
+                                    <form
+                                        action="/teacher/notifications/<%= notification._id %>/delete"
+                                        method="POST"
+                                        onsubmit="return confirm('Delete this notification?')"
+                                    >
+                                        <button class="teacher-notification-action delete" type="submit">
+                                            <i class="fa-solid fa-trash"></i>
+                                            Delete
+                                        </button>
+                                    </form>
+
+                                </div>
+
+                            </div>
+
+                        </article>
+
+                    <% }) %>
+
+                </div>
+
+            <% } %>
+
+        </section>
+
+    </main>
+
+</div>
+
+<script src="/js/uiShell.js"></script>
+</body>
+</html>

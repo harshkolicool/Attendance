@@ -40,7 +40,7 @@ function isLongitude(value) {
 
 function isRadius(value) {
     const radius = Number(value);
-    return !Number.isNaN(radius) && radius >= 10 && radius <= 10000;
+    return !Number.isNaN(radius) && radius >= 1 && radius <= 10000;
 }
 
 function timeToMinutes(timeText) {
@@ -157,16 +157,21 @@ function clearErrorBox(form) {
 function showErrors(form, errors) {
     const errorBox = getOrCreateErrorBox(form);
 
-    let html = "<strong>Please fix these errors:</strong>";
-    html += "<ul>";
+    errorBox.textContent = "";
+
+    const strong = document.createElement("strong");
+    strong.textContent = "Please fix these errors:";
+
+    const list = document.createElement("ul");
 
     errors.forEach(function (error) {
-        html += "<li>" + error.message + "</li>";
+        const item = document.createElement("li");
+        item.textContent = error.message;
+        list.appendChild(item);
     });
 
-    html += "</ul>";
-
-    errorBox.innerHTML = html;
+    errorBox.appendChild(strong);
+    errorBox.appendChild(list);
 }
 
 function addError(errors, form, fieldName, message) {
@@ -227,7 +232,7 @@ function validateClassroomForm(form, errors) {
         const radius = getFieldValue(form, "radius");
 
         if (!isRadius(radius)) {
-            addError(errors, form, "radius", "Radius must be between 10 and 10000 meters.");
+            addError(errors, form, "radius", "Radius must be between 1 and 10000 meters.");
         }
     }
 }
