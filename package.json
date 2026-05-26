@@ -2,16 +2,25 @@
   "name": "attendance",
   "version": "1.0.0",
   "description": "",
+  "keywords": [],
+  "homepage": "https://github.com/jhalak101205-cpu/Attendance_club#readme",
+  "bugs": {
+    "url": "https://github.com/jhalak101205-cpu/Attendance_club/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jhalak101205-cpu/Attendance_club.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js",
-    "init:admin": "node init/initAdmin.js"
+    "init:admin": "node init/initAdmin.js",
+    "seed": "node init/seed.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
     "@simplewebauthn/server": "^13.3.0",
     "bcrypt": "^6.0.0",
