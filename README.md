@@ -1,271 +1,407 @@
-# Attendify
+<div align="center">
+  
+# 📍 Attendify
 
-Attendify is a geo-location based attendance management system for colleges. It allows teachers to start attendance sessions and students to mark attendance from their own device using passkey/trusted browser verification and browser GPS location.
+### *Geo-Location Based Attendance Management System*
 
----
+[![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![Express](https://img.shields.io/badge/Express.js-000000?style=for-the-badge&logo=express&logoColor=white)](https://expressjs.com/)
+[![MongoDB](https://img.shields.io/badge/MongoDB-13AA52?style=for-the-badge&logo=mongodb&logoColor=white)](https://www.mongodb.com/)
+[![Socket.io](https://img.shields.io/badge/Socket.io-010101?style=for-the-badge&logo=socketdotio&logoColor=white)](https://socket.io/)
 
-## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Backend | Node.js, Express.js |
-| Database | MongoDB, Mongoose |
-| Frontend | EJS, HTML, CSS, Vanilla JavaScript |
-| Authentication | Passport.js, express-session, bcrypt |
-| Realtime | Socket.io |
-| Maps & Location | Leaflet.js, Browser Geolocation API |
-| Passkey | WebAuthn, @simplewebauthn/server |
-| Security | Helmet, CSRF protection, express-rate-limit |
-| Session Store | connect-mongo |
-| File Upload | multer |
-| Icons | Font Awesome |
+</div>
 
 ---
 
-## How the App Works Technically
+## 📋 About
 
-Attendify has four main roles:
+Attendify is an intelligent geo-location based attendance management system designed for colleges. It empowers teachers to conduct attendance sessions with GPS verification and allows students to mark attendance securely using passkeys or trusted browser authentication.
 
-- Platform Admin
-- College Admin
-- Teacher
-- Student
-
-Each role has a separate dashboard and protected routes.
+**Key Features:**
+- 🔐 Passkey & WebAuthn Authentication
+- 📍 Real-time GPS Location Verification
+- 👥 Role-based Access Control (Admin, Teacher, Student)
+- 📊 Live Attendance Dashboard with Socket.io
+- 🗺️ Interactive Map View using Leaflet.js
+- 🛡️ Enterprise-grade Security
 
 ---
 
-## Main Workflow
+## 🏗️ Tech Stack
 
-### 1. College/Admin Setup
+<table>
+  <tr>
+    <td align="center"><b>Layer</b></td>
+    <td align="center"><b>Technology</b></td>
+  </tr>
+  <tr>
+    <td>🖥️ <b>Backend</b></td>
+    <td>Node.js, Express.js</td>
+  </tr>
+  <tr>
+    <td>💾 <b>Database</b></td>
+    <td>MongoDB, Mongoose</td>
+  </tr>
+  <tr>
+    <td>🎨 <b>Frontend</b></td>
+    <td>EJS, HTML, CSS, Vanilla JavaScript</td>
+  </tr>
+  <tr>
+    <td>🔐 <b>Authentication</b></td>
+    <td>Passport.js, express-session, bcrypt</td>
+  </tr>
+  <tr>
+    <td>⚡ <b>Realtime</b></td>
+    <td>Socket.io</td>
+  </tr>
+  <tr>
+    <td>🗺️ <b>Maps & Location</b></td>
+    <td>Leaflet.js, Browser Geolocation API</td>
+  </tr>
+  <tr>
+    <td>🔑 <b>Passkey</b></td>
+    <td>WebAuthn, @simplewebauthn/server</td>
+  </tr>
+  <tr>
+    <td>🛡️ <b>Security</b></td>
+    <td>Helmet, CSRF Protection, express-rate-limit</td>
+  </tr>
+  <tr>
+    <td>💾 <b>Session Store</b></td>
+    <td>connect-mongo</td>
+  </tr>
+  <tr>
+    <td>📤 <b>File Upload</b></td>
+    <td>Multer</td>
+  </tr>
+  <tr>
+    <td>🎯 <b>Icons</b></td>
+    <td>Font Awesome</td>
+  </tr>
+</table>
+
+---
+
+## 👥 System Roles
+
+Attendify supports four main user roles with dedicated dashboards:
+
+```
+┌─────────────────┐
+│ Platform Admin  │  ← Manages entire system & colleges
+├─────────────────┤
+│  College Admin  │  ← Manages college & its resources
+├─────────────────┤
+│    Teacher      │  ← Conducts attendance sessions
+├─────────────────┤
+│    Student      │  ← Marks attendance
+└─────────────────┘
+```
+
+Each role has **protected routes** and a **separate dashboard**.
+
+---
+
+## 🔄 Main Workflow
+
+### 1️⃣ College Setup
 
 The college admin creates and manages:
 
-- Class groups
-- Classrooms
-- Subjects
-- Teachers
-- Students
-- Class schedules
+- 📚 Class groups
+- 🏫 Classrooms (with GPS coordinates)
+- 📖 Subjects
+- 👨‍🏫 Teachers
+- 👨‍🎓 Students
+- 📅 Class schedules
 
 Each classroom stores:
-
-- Latitude
-- Longitude
-- Allowed attendance radius
-
-This location data is later used to verify whether a student is inside the classroom range.
-
----
-
-### 2. Teacher Starts Attendance
-
-When a teacher starts attendance:
-
-1. Teacher selects/starts a scheduled class.
-2. The system creates an `AttendanceSession`.
-3. Teacher GPS location is captured.
-4. Session status becomes `ACTIVE`.
-5. Socket.io notifies connected students and teacher dashboard.
-6. Teacher can monitor live students on the map.
-
-The attendance session stores:
-
-- Teacher
-- Subject
-- Class group
-- Classroom
-- Start time
-- End time
-- Teacher latitude/longitude
-- Allowed radius
-- Active/closed status
+```
+├── Latitude & Longitude
+├── Allowed attendance radius (meters)
+└── Associated subjects & teachers
+```
 
 ---
 
-### 3. Student Marks Attendance
+### 2️⃣ Teacher Starts Attendance
 
-When a student clicks **Mark Attendance**:
+**Process Flow:**
 
-1. Student must be logged in.
-2. System checks active attendance session.
+```
+1. Teacher selects a scheduled class
+   ↓
+2. System creates an AttendanceSession
+   ↓
+3. Teacher GPS location is captured
+   ↓
+4. Session status → ACTIVE
+   ↓
+5. Socket.io notifies students & dashboard
+   ↓
+6. Teacher monitors live student locations on map
+```
+
+**Session Data Stored:**
+- 👨‍🏫 Teacher & Subject
+- 👥 Class group
+- 🏫 Classroom
+- 🕐 Start & End time
+- 📍 Teacher's GPS coordinates
+- 📏 Allowed radius for attendance
+- ✅ Active/Closed status
+
+---
+
+### 3️⃣ Student Marks Attendance
+
+**Student Flow:**
+
+```
+1. Student clicks "Mark Attendance" button
+   ↓
+2. System checks for active session
+   ↓
 3. Student verifies identity using:
-   - Passkey, or
-   - Trusted browser fallback
-4. Browser captures student GPS location.
-5. Frontend sends location and security token to backend.
-6. Backend verifies:
-   - Student belongs to the class
-   - Session is active
-   - Attendance token is valid
-   - GPS location is inside allowed range
-7. If valid, attendance is saved as `PRESENT`.
+   ├── 🔑 Passkey (Fingerprint/Face ID)
+   └── 🔒 Trusted Browser fallback
+   ↓
+4. Browser captures GPS location
+   ↓
+5. Frontend sends location & security token
+   ↓
+6. Backend validates:
+   ├── Student in correct class
+   ├── Session is active
+   ├── Token is valid
+   └── GPS within allowed range
+   ↓
+7. ✅ Attendance saved as PRESENT
+```
 
 ---
 
-## Attendance Verification Flow
+## ✅ Attendance Verification Flow
 
-```txt
-Teacher Starts Attendance
-        ↓
-Attendance Session Becomes Active
-        ↓
-Student Opens Dashboard
-        ↓
-Student Clicks Mark Attendance
-        ↓
-Passkey / Trusted Browser Verification
-        ↓
-Browser Captures GPS Location
-        ↓
-Backend Validates Distance + Token + Session
-        ↓
-Attendance Record Saved as PRESENT
-        ↓
-Teacher Dashboard Updates in Realtime
-
-## Passkey System
-
-Passkey is used to verify that the real student is marking attendance.
-
-### How it works
-
-1. Admin allows passkey setup.
-2. Student registers a passkey.
-3. Browser/device creates a secure key pair.
-4. Public key is stored on the server.
-5. Private key stays on the student device.
-6. During attendance, student verifies using fingerprint, face unlock, PIN, or device authentication.
-7. Server verifies the passkey challenge.
-
-This makes attendance more secure than only using password login.
+```
+         Teacher Starts Attendance
+                   ↓
+          Session Becomes ACTIVE
+                   ↓
+          Student Opens Dashboard
+                   ↓
+        Student Clicks "Mark Attendance"
+                   ↓
+      Passkey / Trusted Browser Verification
+                   ↓
+        Browser Captures GPS Location
+                   ↓
+     Backend Validates Distance + Token + Session
+                   ↓
+       ✅ Attendance Record Saved as PRESENT
+                   ↓
+      Teacher Dashboard Updates (via Socket.io)
+```
 
 ---
 
-## Trusted Browser System
+## 🔐 Security Features
 
-Trusted browser is a fallback when passkey is not supported.
+### Passkey System (WebAuthn)
 
-### How it works
+**How it works:**
 
-1. Admin allows trusted browser setup.
-2. Student enters password to trust the current browser.
-3. Server creates a secure device token.
-4. Token hash is stored in the database.
-5. Browser stores the trusted token in a cookie.
-6. During attendance, backend verifies this trusted browser token.
+```
+1. Admin enables passkey setup
+2. Student registers a passkey
+3. Browser/device creates secure key pair
+4. Public key stored on server
+5. Private key stays on student device
+6. During attendance: Student verifies via fingerprint, face, PIN, or biometric
+7. Server verifies passkey challenge
+```
 
-This helps students whose devices do not support passkeys.
-
----
-
-## Geo-Location Attendance
-
-The app uses browser GPS to verify student location.
-
-The backend checks:
-
-- Student latitude
-- Student longitude
-- GPS accuracy
-- Teacher/session location
-- Classroom radius
-- Distance between student and classroom/session
-
-Attendance is only accepted if the student is within the allowed range.
-
-The backend performs the final verification, so students cannot simply fake frontend data.
+✨ **More secure than password-only login!**
 
 ---
 
-## Realtime Updates with Socket.io
+### Trusted Browser System
 
-Socket.io is used for live updates.
+**Fallback for devices without passkey support:**
 
-It handles:
-
-- Teacher live dashboard updates
-- Student attendance status updates
-- Live map location updates
-- Active session updates
-- Notification count updates
-
-When a student marks attendance, the teacher dashboard updates without refreshing the page.
+```
+1. Admin enables trusted browser feature
+2. Student enters password to trust browser
+3. Server creates secure device token
+4. Token hash stored in database
+5. Browser stores token in secure cookie
+6. During attendance: Backend verifies token
+```
 
 ---
 
-## Important Database Models
+### Geo-Location Verification
+
+**Backend validates:**
+
+- 📍 Student latitude & longitude
+- 🎯 GPS accuracy
+- 🏫 Teacher/session location
+- 📏 Classroom radius
+- 🔍 Distance calculation
+
+> ⚠️ **Backend performs final verification** — Students cannot fake frontend location data!
+
+---
+
+## 🔄 Realtime Updates with Socket.io
+
+Live updates power the dashboard experience:
+
+- 📊 Teacher dashboard auto-updates when students mark attendance
+- 👤 Student attendance status notifications
+- 🗺️ Live map location updates
+- 🔔 Active session updates
+- 📈 Notification count updates
+
+**No page refresh needed!** Changes appear instantly via WebSocket.
+
+---
+
+## 🗄️ Database Models
 
 | Model | Purpose |
-|---|---|
-| Student | Stores student details, passkeys, trusted browsers |
-| Teacher | Stores teacher details and assigned subjects |
-| Classroom | Stores classroom location and radius |
-| Schedule | Stores class timetable |
-| AttendanceSession | Stores live attendance session |
-| AttendanceRecord | Stores final student attendance |
-| AttendanceAttempt | Stores failed/suspicious attempts |
-| Notification | Stores user notifications |
-| College | Stores college details |
+|-------|---------|
+| **Student** | Student profile, passkeys, trusted browsers |
+| **Teacher** | Teacher details, assigned subjects |
+| **Classroom** | Location (GPS) & attendance radius |
+| **Schedule** | Class timetable |
+| **AttendanceSession** | Active attendance session data |
+| **AttendanceRecord** | Final attendance records (PRESENT/ABSENT) |
+| **AttendanceAttempt** | Failed & suspicious attempts |
+| **Notification** | User notifications |
+| **College** | College details |
 
 ---
 
-## Attendance Record
+## 📊 Attendance Record
 
-Each attendance record stores:
+Each attendance record contains:
 
-- Student
-- Attendance session
-- Subject
-- Class group
-- Classroom
-- Status: `PRESENT` or `ABSENT`
-- Latitude and longitude
-- Distance from classroom
-- Verification method
-- Device information
-- Marked time
-
----
-
-## Reports
-
-Teachers and admins can view attendance reports.
-
-Reports help track:
-
-- Present students
-- Absent students
-- Attendance percentage
-- Suspicious attempts
-- Class-wise attendance
-- Subject-wise attendance
+```
+├── 👤 Student ID
+├── 📅 Attendance Session
+├── 📖 Subject
+├── 👥 Class Group
+├── 🏫 Classroom
+├── ✅ Status: PRESENT / ABSENT
+├── 📍 GPS Location (Lat, Lng)
+├── 📏 Distance from Classroom
+├── 🔐 Verification Method (Passkey / Trusted Browser)
+├── 📱 Device Information
+└── 🕐 Marked Time
+```
 
 ---
 
-## Security Features
+## 📈 Reports & Analytics
 
-Attendify includes:
+Teachers and admins can generate attendance reports:
 
-- Password hashing with bcrypt
-- Session authentication using Passport.js
-- MongoDB session store
-- CSRF protection
-- Helmet security headers
-- Rate limiting
-- Passkey verification
-- Trusted browser token verification
-- Server-side GPS validation
-- Role-based route protection
+- 📊 Present/Absent student count
+- 📉 Attendance percentage
+- ⚠️ Suspicious attempts
+- 📚 Class-wise analysis
+- 📖 Subject-wise analysis
+- 📅 Date range filtering
 
 ---
 
-## Local Setup
+## 🛡️ Security Measures
 
-Clone the project:
+- 🔒 **Password Hashing** — bcrypt
+- 🔐 **Session Auth** — Passport.js
+- 💾 **Secure Sessions** — MongoDB session store
+- 🔄 **CSRF Protection** — Express CSRF middleware
+- ⛑️ **HTTP Headers** — Helmet
+- 🚦 **Rate Limiting** — express-rate-limit
+- 🔑 **Passkey Verification** — WebAuthn
+- ✔️ **GPS Validation** — Server-side verification
+- 🚪 **Role-Based Access** — Protected routes
+
+---
+
+## 🚀 Local Setup
+
+### Prerequisites
+- Node.js (v14+)
+- MongoDB
+- Git
+
+### Installation
 
 ```bash
-git clone <repo-url>
+# Clone the repository
+git clone https://github.com/harshkolicool/Attendance.git
 cd Attendance
+
+# Switch to development branch
 git checkout harsh
+
+# Install dependencies
 npm install
+
+# Create .env file and configure
+# (DATABASE_URL, SESSION_SECRET, etc.)
+cp .env.example .env
+
+# Start the server
+npm start
+```
+
+The app will run on `http://localhost:3000`
+
+---
+
+## 📁 Project Structure
+
+```
+Attendance/
+├── views/              # EJS templates
+├── routes/             # Express routes
+├── controllers/        # Business logic
+├── models/             # Mongoose schemas
+├── middleware/         # Custom middleware
+├── public/             # Static files (CSS, JS)
+├── utils/              # Helper functions
+├── config/             # Configuration files
+└── app.js              # Main application file
+```
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License — see LICENSE file for details.
+
+---
+
+<div align="center">
+
+### ⭐ If you found this helpful, please star the repo!
+
+**Made with ❤️ by [harshkolicool](https://github.com/harshkolicool)**
+
+</div>
