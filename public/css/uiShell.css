@@ -218,9 +218,20 @@ body.ui-sidebar-open {
     box-shadow: none !important;
 }
 
-.shell-logout-form {
+.sidebar-logout-form {
     width: 100%;
     margin: 0;
+}
+
+.sidebar-logout-button {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-align: left;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
 }
 
 .ui-sidebar::-webkit-scrollbar {
@@ -355,24 +366,7 @@ body.ui-sidebar-open {
     color: #ffffff !important;
 }
 
-/* Logout */
-.ui-sidebar .logout-btn,
-.ui-sidebar .student-nav-logout,
-.ui-sidebar .admin-logout-btn,
-.ui-sidebar .platform-logout-btn {
-    border: 1px solid rgba(255, 255, 255, 0.14) !important;
-    background: transparent !important;
-    color: #ffffff !important;
-    justify-content: flex-start !important;
-}
-
-.ui-sidebar .logout-btn:hover,
-.ui-sidebar .student-nav-logout:hover,
-.ui-sidebar .admin-logout-btn:hover,
-.ui-sidebar .platform-logout-btn:hover {
-    background: #dc2626 !important;
-    border-color: #dc2626 !important;
-}
+/* Removed old logout button CSS to unify with menu-link */
 
 /* =========================
    HAMBURGER
@@ -618,9 +612,7 @@ body.ui-sidebar-open {
         position: sticky;
         bottom: 0;
         margin-top: 14px;
-        background:
-            linear-gradient(180deg, rgba(15, 31, 53, 0), var(--shell-dark) 24%),
-            var(--shell-dark);
+        background: transparent;
         padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
     }
 
@@ -661,7 +653,6 @@ body.ui-sidebar-open {
     .student-header,
     .admin-header,
     .platform-header,
-    .dashboard-panel-head,
     .student-history-card-head,
     .teacher-card-header {
         display: block !important;

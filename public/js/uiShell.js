@@ -137,9 +137,17 @@
         }
     }
 
+    function notifyLayoutChanged() {
+        // Give the CSS transition time to complete before invalidating map size
+        setTimeout(function () {
+            window.dispatchEvent(new CustomEvent("attendify:layout-changed"));
+        }, 320);
+    }
+
     function toggleSidebar(sidebar) {
         if (isDrawerMode()) {
             document.body.classList.toggle("ui-sidebar-open");
+            notifyLayoutChanged();
             return;
         }
 
@@ -149,10 +157,12 @@
         const collapsed = document.body.classList.contains("ui-sidebar-collapsed");
 
         localStorage.setItem(getStorageKey(sidebar), collapsed ? "true" : "false");
+        notifyLayoutChanged();
     }
 
     function closeDrawer() {
         document.body.classList.remove("ui-sidebar-open");
+        notifyLayoutChanged();
     }
 
     function syncActiveSidebarLink(sidebar) {
@@ -680,8 +690,33 @@
             });
     }
 
+    function wrapSelects() {
+        const selects = document.querySelectorAll('select');
+        for (let i = 0; i < selects.length; i++) {
+            const select = selects[i];
+            if (select.closest('.select-shell')) {
+                continue;
+            }
+            const wrapper = document.createElement('div');
+            wrapper.className = 'select-shell';
+            
+            const icon = document.createElement('i');
+            const defaultIcon = select.getAttribute('data-select-icon') || 'fa-solid fa-list-ul';
+            icon.className = defaultIcon + ' select-shell-icon';
+            
+            const chevron = document.createElement('i');
+            chevron.className = 'fa-solid fa-chevron-down select-shell-chevron';
+            
+            select.parentNode.insertBefore(wrapper, select);
+            wrapper.appendChild(icon);
+            wrapper.appendChild(select);
+            wrapper.appendChild(chevron);
+        }
+    }
+
     document.addEventListener("DOMContentLoaded", function () {
         installShell();
+        wrapSelects();
         installRealtime();
     });
 })();

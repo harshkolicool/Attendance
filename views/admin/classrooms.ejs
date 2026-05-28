@@ -82,12 +82,16 @@
                     <input
                         type="number"
                         name="radius"
+                        class="js-radius-input"
                         placeholder="100"
                         value="100"
                         min="1"
                         max="10000"
                         required
                     >
+                    <p class="admin-help-text js-radius-warning" style="display: none; color: #d97706; font-size: 0.85rem; margin-top: 4px;">
+                        <i class="fa-solid fa-triangle-exclamation"></i> Browser GPS is not reliable for strict indoor accuracy. The app will use GPS accuracy allowance while still storing your configured radius.
+                    </p>
                 </div>
 
                 <div class="admin-field admin-button-field">
@@ -217,11 +221,15 @@
                                     <input
                                         type="number"
                                         name="radius"
+                                        class="js-radius-input"
                                         value="<%= room.radius %>"
                                         min="1"
                                         max="10000"
                                         required
                                     >
+                                    <p class="admin-help-text js-radius-warning" style="display: none; color: #d97706; font-size: 0.85rem; margin-top: 4px;">
+                                        <i class="fa-solid fa-triangle-exclamation"></i> Browser GPS is not reliable for strict indoor accuracy. The app will use GPS accuracy allowance while still storing your configured radius.
+                                    </p>
                                 </div>
 
                                 <button class="admin-primary-btn" type="submit">
@@ -245,5 +253,22 @@
 <script src="/js/adminSearch.js"></script>
 <script src="/js/adminValidation.js"></script>
 <script src="/js/uiShell.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    const inputs = document.querySelectorAll(".js-radius-input");
+    inputs.forEach(input => {
+        const warning = input.parentElement.querySelector(".js-radius-warning");
+        function checkVal() {
+            if (Number(input.value) < 10) {
+                warning.style.display = "block";
+            } else {
+                warning.style.display = "none";
+            }
+        }
+        input.addEventListener("input", checkVal);
+        checkVal();
+    });
+});
+</script>
 </body>
 </html>

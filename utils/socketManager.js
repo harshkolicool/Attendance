@@ -3,6 +3,12 @@ let ioInstance = null;
 const Student = require("../models/studentSchema");
 const Teacher = require("../models/teacherSchema");
 const PlatformAdmin = require("../models/platformAdminSchema");
+const AttendanceSession = require("../models/attendanceSessionSchema");
+const liveLocationStore = require("./liveLocationStore");
+const { evaluateLocationRange } = require("./locationVerification");
+
+const LOCATION_PERSIST_INTERVAL_MS = 10000;
+const locationPersistedAt = new Map();
 
 function getId(value) {
     if (!value) {
@@ -85,6 +91,164 @@ function getPlatformAdminRoom() {
     return "platform-admin:all";
 }
 
+function getSessionRoom(sessionId) {
+    return "attendanceSession:" + sessionId.toString();
+}
+
+function isFiniteNumber(value) {
+    return Number.isFinite(Number(value));
+}
+
+
+
+function getTrackedDeviceKey(sessionId, studentId, deviceId) {
+    return [
+        String(sessionId || ""),
+        String(studentId || ""),
+        String(deviceId || "default")
+    ].join(":");
+}
+
+function rememberTrackedDevice(socket, sessionId, studentId, deviceId) {
+    if (!socket.data.trackedDevicesBySession) {
+        socket.data.trackedDevicesBySession = {};
+    }
+
+    const sessionKey = String(sessionId);
+
+    if (!socket.data.trackedDevicesBySession[sessionKey]) {
+        socket.data.trackedDevicesBySession[sessionKey] = {};
+    }
+
+    socket.data.trackedDevicesBySession[sessionKey][String(deviceId || "default")] = {
+        studentId: String(studentId || ""),
+        deviceId: String(deviceId || "default")
+    };
+}
+
+function mapPersistedLiveDevice(device, sessionId) {
+    if (!device) {
+        return null;
+    }
+
+    const studentId = getId(device.student);
+
+    if (!studentId) {
+        return null;
+    }
+
+    return {
+        sessionId: String(sessionId),
+        studentId: studentId,
+        studentName: device.studentName || "Student",
+        deviceId: device.deviceId || "default",
+        deviceLabel: device.deviceLabel || "Device",
+        latitude: Number(device.latitude),
+        longitude: Number(device.longitude),
+        accuracy:
+            device.accuracy === null || device.accuracy === undefined
+                ? null
+                : Number(device.accuracy),
+        distance: Number(device.distance || 0),
+        inside: Boolean(device.inside),
+        updatedAt: device.lastActiveAt || new Date(),
+        online: Boolean(device.online)
+    };
+}
+
+function getPersistedLocationSnapshot(session) {
+    if (!session || !Array.isArray(session.liveDevices)) {
+        return [];
+    }
+
+    return session.liveDevices
+        .map(function (device) {
+            return mapPersistedLiveDevice(device, session._id);
+        })
+        .filter(Boolean);
+}
+
+function shouldPersistLocation(sessionId, studentId, deviceId) {
+    const key = getTrackedDeviceKey(sessionId, studentId, deviceId);
+    const now = Date.now();
+    const previous = Number(locationPersistedAt.get(key) || 0);
+
+    if (now - previous < LOCATION_PERSIST_INTERVAL_MS) {
+        return false;
+    }
+
+    locationPersistedAt.set(key, now);
+    return true;
+}
+
+async function persistLiveDeviceLocation(payload) {
+    if (!payload || !payload.sessionId || !payload.studentId) {
+        return;
+    }
+
+    if (!shouldPersistLocation(payload.sessionId, payload.studentId, payload.deviceId)) {
+        return;
+    }
+
+    const deviceDoc = {
+        student: payload.studentId,
+        studentName: payload.studentName || "Student",
+        deviceId: payload.deviceId || "default",
+        deviceLabel: payload.deviceLabel || "Device",
+        latitude: Number(payload.latitude),
+        longitude: Number(payload.longitude),
+        accuracy:
+            payload.accuracy === null || payload.accuracy === undefined
+                ? null
+                : Number(payload.accuracy),
+        distance: Number(payload.distance || 0),
+        inside: Boolean(payload.inside),
+        online: payload.online !== false,
+        lastActiveAt: payload.updatedAt || new Date()
+    };
+
+    await AttendanceSession.updateOne(
+        { _id: payload.sessionId },
+        {
+            $pull: {
+                liveDevices: {
+                    student: payload.studentId,
+                    deviceId: payload.deviceId || "default"
+                }
+            }
+        }
+    );
+
+    await AttendanceSession.updateOne(
+        { _id: payload.sessionId },
+        {
+            $push: {
+                liveDevices: deviceDoc
+            }
+        }
+    );
+}
+
+async function persistOfflineDevice(payload) {
+    if (!payload || !payload.sessionId || !payload.studentId) {
+        return;
+    }
+
+    await AttendanceSession.updateOne(
+        {
+            _id: payload.sessionId,
+            "liveDevices.student": payload.studentId,
+            "liveDevices.deviceId": payload.deviceId || "default"
+        },
+        {
+            $set: {
+                "liveDevices.$.online": false,
+                "liveDevices.$.lastActiveAt": payload.updatedAt || new Date()
+            }
+        }
+    );
+}
+
 function initializeSocket(io) {
     ioInstance = io;
 
@@ -98,6 +262,11 @@ function initializeSocket(io) {
         socket.on("student:join", async function () {
             try {
                 if (socket.data && socket.data.studentJoined === true) {
+                    socket.emit("student:joined", {
+                        studentId: socket.data.studentId || "",
+                        classGroupId: socket.data.classGroupId || "",
+                        collegeId: socket.data.collegeId || ""
+                    });
                     return;
                 }
 
@@ -111,7 +280,7 @@ function initializeSocket(io) {
 
                 const studentId = currentUser._id || currentUser.id;
 
-                const student = await Student.findById(studentId).select("classGroup college fullName");
+                const student = await Student.findOne({ _id: studentId, isDeleted: { $ne: true }, isBlocked: { $ne: true } }).select("classGroup college fullName enrollmentNumber email");
 
                 if (!student || !student.classGroup) {
                     emitSocketError(socket, "Student realtime setup is incomplete.");
@@ -121,6 +290,11 @@ function initializeSocket(io) {
                 socket.join(getStudentRoom(student._id));
                 socket.join(getClassGroupRoom(student.classGroup));
                 socket.data.studentJoined = true;
+                socket.data.studentId = student._id.toString();
+                socket.data.classGroupId = student.classGroup.toString();
+                socket.data.collegeId = student.college ? student.college.toString() : "";
+                socket.data.studentName = student.fullName || "";
+                socket.data.enrollmentNumber = student.enrollmentNumber || student.email || "";
 
                 socket.emit("student:joined", {
                     studentId: student._id.toString(),
@@ -136,6 +310,11 @@ function initializeSocket(io) {
         socket.on("teacher:join", async function () {
             try {
                 if (socket.data && socket.data.teacherJoined === true) {
+                    socket.emit("teacher:joined", {
+                        teacherId: socket.data.teacherId || "",
+                        role: socket.data.teacherRole || "TEACHER",
+                        collegeId: socket.data.collegeId || ""
+                    });
                     return;
                 }
 
@@ -149,7 +328,7 @@ function initializeSocket(io) {
 
                 const teacherId = currentUser._id || currentUser.id;
 
-                const teacher = await Teacher.findById(teacherId).select("fullName college role");
+                const teacher = await Teacher.findOne({ _id: teacherId, isDeleted: { $ne: true }, isBlocked: { $ne: true } }).select("fullName college role");
 
                 if (!teacher) {
                     emitSocketError(socket, "Teacher realtime profile was not found.");
@@ -157,6 +336,10 @@ function initializeSocket(io) {
                 }
 
                 socket.join(getTeacherRoom(teacher._id));
+                socket.data.teacherId = teacher._id.toString();
+                socket.data.teacherName = teacher.fullName || "";
+                socket.data.teacherRole = teacher.role || "TEACHER";
+                socket.data.collegeId = teacher.college ? teacher.college.toString() : "";
 
                 if (teacher.role === "ADMIN" && teacher.college) {
                     socket.join(getAdminCollegeRoom(teacher.college));
@@ -178,6 +361,10 @@ function initializeSocket(io) {
         socket.on("admin:join", async function () {
             try {
                 if (socket.data && socket.data.adminJoined === true) {
+                    socket.emit("admin:joined", {
+                        adminId: socket.data.teacherId || "",
+                        collegeId: socket.data.adminCollegeId || socket.data.collegeId || ""
+                    });
                     return;
                 }
 
@@ -191,7 +378,7 @@ function initializeSocket(io) {
 
                 const teacherId = currentUser._id || currentUser.id;
 
-                const admin = await Teacher.findById(teacherId).select("college role");
+                const admin = await Teacher.findOne({ _id: teacherId, isDeleted: { $ne: true }, isBlocked: { $ne: true } }).select("college role");
 
                 if (!admin || admin.role !== "ADMIN" || !admin.college) {
                     emitSocketError(socket, "Admin realtime profile is not eligible.");
@@ -201,6 +388,8 @@ function initializeSocket(io) {
                 socket.join(getTeacherRoom(admin._id));
                 socket.join(getAdminCollegeRoom(admin.college));
                 socket.data.adminJoined = true;
+                socket.data.teacherId = admin._id.toString();
+                socket.data.adminCollegeId = admin.college.toString();
 
                 socket.emit("admin:joined", {
                     adminId: admin._id.toString(),
@@ -215,6 +404,10 @@ function initializeSocket(io) {
         socket.on("platform-admin:join", async function () {
             try {
                 if (socket.data && socket.data.platformAdminJoined === true) {
+                    socket.emit("platform-admin:joined", {
+                        platformAdminId: socket.data.platformAdminId || "",
+                        email: socket.data.platformAdminEmail || ""
+                    });
                     return;
                 }
 
@@ -236,6 +429,8 @@ function initializeSocket(io) {
 
                 socket.join(getPlatformAdminRoom());
                 socket.data.platformAdminJoined = true;
+                socket.data.platformAdminId = platformAdmin._id.toString();
+                socket.data.platformAdminEmail = platformAdmin.email || "";
 
                 socket.emit("platform-admin:joined", {
                     platformAdminId: platformAdmin._id.toString(),
@@ -243,6 +438,276 @@ function initializeSocket(io) {
                 });
             } catch (err) {
                 console.log("SOCKET PLATFORM ADMIN JOIN ERROR:");
+                console.log(err.message);
+            }
+        });
+
+        socket.on("teacher:watch-session", async function (payload) {
+            try {
+                await reloadSocketSession(socket);
+                const currentUser = getSessionUser(socket);
+
+                if (!currentUser || currentUser.accountType !== "teacher") {
+                    emitSocketError(socket, "Teacher session required.");
+                    return;
+                }
+
+                const sessionId = payload && payload.sessionId ? String(payload.sessionId) : "";
+                if (!sessionId) {
+                    return;
+                }
+
+                const session = await AttendanceSession.findOne({
+                    _id: sessionId,
+                    teacher: currentUser._id,
+                    isActive: true,
+                    status: "ACTIVE"
+                })
+                    .select("_id teacher classGroup latitude longitude radius endTime liveDevices")
+                    .populate("classGroup", "name");
+
+                if (!session) {
+                    return;
+                }
+
+                const classGroupId = session.classGroup
+                    ? session.classGroup._id || session.classGroup
+                    : null;
+
+                let roster = [];
+
+                const teacherProfile = await Teacher.findOne({ _id: currentUser._id, isDeleted: { $ne: true }, isBlocked: { $ne: true } }).select("college");
+
+                if (classGroupId && teacherProfile && teacherProfile.college) {
+                    roster = await Student.find({
+                        college: teacherProfile.college,
+                        classGroup: classGroupId,
+                        isDeleted: { $ne: true },
+                        isBlocked: { $ne: true }
+                    })
+                        .select("fullName enrollmentNumber profileImage")
+                        .sort({ fullName: 1 })
+                        .lean();
+                }
+
+                const memorySnapshot = liveLocationStore.getSnapshot(session._id);
+                const persistedSnapshot = getPersistedLocationSnapshot(session);
+
+                socket.join(getSessionRoom(session._id));
+                socket.emit("teacher:watch-session:ok", {
+                    sessionId: session._id.toString(),
+                    latitude: Number(session.latitude || 0),
+                    longitude: Number(session.longitude || 0),
+                    radius: Number(session.radius || 0),
+                    endTime: session.endTime,
+                    classGroupName: session.classGroup ? session.classGroup.name || "" : "",
+                    roster: roster.map(function (student) {
+                        return {
+                            studentId: student._id.toString(),
+                            fullName: student.fullName || "Student",
+                            enrollmentNumber: student.enrollmentNumber || ""
+                        };
+                    }),
+                    snapshot: memorySnapshot.length > 0 ? memorySnapshot : persistedSnapshot
+                });
+            } catch (err) {
+                console.log("SOCKET TEACHER WATCH SESSION ERROR:");
+                console.log(err.message);
+            }
+        });
+
+        socket.on("disconnect", function () {
+            try {
+                if (!socket.data || socket.data.studentJoined !== true || !socket.data.studentId) {
+                    return;
+                }
+
+                const io = getIO();
+                if (!io) {
+                    return;
+                }
+
+                const trackedBySession = socket.data.trackedDevicesBySession || {};
+                const activeSessionIds = Object.keys(trackedBySession);
+
+                for (let i = 0; i < activeSessionIds.length; i++) {
+                    const sessionId = activeSessionIds[i];
+                    const devices = Object.values(trackedBySession[sessionId] || {});
+
+                    for (let j = 0; j < devices.length; j++) {
+                        const trackedDevice = devices[j];
+                        const offlineDevices = liveLocationStore.markDeviceOffline(
+                            sessionId,
+                            trackedDevice.studentId,
+                            trackedDevice.deviceId,
+                            socket.id
+                        );
+
+                        for (let k = 0; k < offlineDevices.length; k++) {
+                            const device = offlineDevices[k];
+                            const offlinePayload = Object.assign({}, device, {
+                                online: false,
+                                updatedAt: new Date()
+                            });
+
+                            io.to(getSessionRoom(sessionId)).emit("student:location:update", offlinePayload);
+
+                            persistOfflineDevice(offlinePayload).catch(function () {
+                                // ignore persistence failures during disconnect cleanup
+                            });
+                            AttendanceSession.findById(sessionId)
+                                .select("teacher")
+                                .then(function (sessionDoc) {
+                                    if (sessionDoc && sessionDoc.teacher) {
+                                        io.to(getTeacherRoom(sessionDoc.teacher)).emit(
+                                            "student:location:update",
+                                            offlinePayload
+                                        );
+                                    }
+                                })
+                                .catch(function () {
+                                    // ignore
+                                });
+                        }
+                    }
+                }
+            } catch (err) {
+                console.log("SOCKET STUDENT DISCONNECT LOCATION ERROR:");
+                console.log(err.message);
+            }
+        });
+
+        socket.on("student:location:update", async function (payload) {
+            try {
+                if (!socket.data || socket.data.studentJoined !== true) {
+                    return;
+                }
+
+                const now = Date.now();
+                const lastTs = Number(socket.data.lastStudentLocationTs || 0);
+                if (now - lastTs < 1500) {
+                    return;
+                }
+                socket.data.lastStudentLocationTs = now;
+
+                const sessionId = payload && payload.sessionId ? String(payload.sessionId) : "";
+                const deviceId = payload && payload.deviceId ? String(payload.deviceId) : "";
+                const deviceLabel = payload && payload.deviceLabel ? String(payload.deviceLabel) : "";
+                const latitude = payload ? Number(payload.latitude) : NaN;
+                const longitude = payload ? Number(payload.longitude) : NaN;
+                const accuracy = payload ? Number(payload.accuracy) : NaN;
+
+                if (!sessionId) {
+                    return;
+                }
+
+                if (
+                    !isFiniteNumber(latitude) ||
+                    !isFiniteNumber(longitude) ||
+                    latitude < -90 ||
+                    latitude > 90 ||
+                    longitude < -180 ||
+                    longitude > 180
+                ) {
+                    return;
+                }
+
+                // Allow a 2-minute grace window after endTime in case of clock skew
+                // or a teacher who forgot to close the session
+                const locationGraceEnd = new Date(Date.now() - 2 * 60 * 1000);
+
+                const session = await AttendanceSession.findOne({
+                    _id: sessionId,
+                    isActive: true,
+                    status: "ACTIVE",
+                    endTime: { $gt: locationGraceEnd }
+                }).select("_id teacher classGroup latitude longitude radius teacherGpsAccuracy endTime");
+
+                if (!session || !session.teacher || !session.classGroup) {
+                    return;
+                }
+
+                if (
+                    socket.data.classGroupId &&
+                    session.classGroup.toString() !== socket.data.classGroupId
+                ) {
+                    return;
+                }
+
+                const centerLat = Number(session.latitude || 0);
+                const centerLon = Number(session.longitude || 0);
+                const radius = Number(session.radius || 0);
+                const teacherGpsAccuracy = Number(session.teacherGpsAccuracy || 0);
+
+                if (!isFiniteNumber(centerLat) || !isFiniteNumber(centerLon) || radius <= 0) {
+                    return;
+                }
+
+                const evaluation = evaluateLocationRange(
+                    centerLat,
+                    centerLon,
+                    latitude,
+                    longitude,
+                    radius,
+                    accuracy,
+                    teacherGpsAccuracy
+                );
+                
+                const distance = evaluation.measuredDistance;
+                const inside = !evaluation.isOutside;
+                const studentStatus = evaluation.status;     // INSIDE | NEAR | OUTSIDE | POOR_ACCURACY
+
+                const eventPayload = {
+                    sessionId: session._id.toString(),
+                    studentId: socket.data.studentId || "",
+                    studentName: socket.data.studentName || "",
+                    enrollmentNumber: socket.data.enrollmentNumber || "",
+                    deviceId: deviceId || "default",
+                    deviceLabel: deviceLabel || "Device",
+                    latitude: latitude,
+                    longitude: longitude,
+                    accuracy: isFiniteNumber(accuracy) ? accuracy : null,
+                    distance: Math.round(distance),
+                    distanceLabel: evaluation.distanceLabel || "",
+                    configuredRadius: Math.round(evaluation.configuredRadius),
+                    effectiveRadius: Math.round(evaluation.effectiveRadius),
+                    uncertaintyAllowance: Math.round(evaluation.uncertaintyAllowance),
+                    inside: inside,
+                    status: studentStatus,
+                    reasonCode: evaluation.reasonCode,
+                    updatedAt: new Date(),
+                    online: true
+                };
+
+                liveLocationStore.upsertDevice(session._id, eventPayload, socket.id);
+
+                if (!socket.data.trackedSessionIds) {
+                    socket.data.trackedSessionIds = [];
+                }
+
+                const trackedId = session._id.toString();
+
+                if (socket.data.trackedSessionIds.indexOf(trackedId) === -1) {
+                    socket.data.trackedSessionIds.push(trackedId);
+                }
+
+                rememberTrackedDevice(
+                    socket,
+                    trackedId,
+                    eventPayload.studentId,
+                    eventPayload.deviceId
+                );
+
+                persistLiveDeviceLocation(eventPayload).catch(function (persistErr) {
+                    console.log("LIVE LOCATION PERSIST ERROR:");
+                    console.log(persistErr.message);
+                });
+
+                const teacherId = session.teacher.toString();
+                io.to(getTeacherRoom(teacherId)).emit("student:location:update", eventPayload);
+                io.to(getSessionRoom(session._id)).emit("student:location:update", eventPayload);
+            } catch (err) {
+                console.log("SOCKET STUDENT LOCATION UPDATE ERROR:");
                 console.log(err.message);
             }
         });
@@ -277,9 +742,14 @@ function emitAttendanceStarted(session, scheduleItem) {
         subjectName: scheduleItem.subject ? scheduleItem.subject.subjectName : "Subject",
         classGroupName: scheduleItem.classGroup ? scheduleItem.classGroup.name : "Class",
         classroomName: scheduleItem.classroom ? scheduleItem.classroom.classroomName : "Classroom",
+        latitude: Number(session.latitude || 0),
+        longitude: Number(session.longitude || 0),
+        teacherGpsAccuracy: Number(session.teacherGpsAccuracy || 0),
         startTime: session.startTime,
         endTime: session.endTime,
-        radius: session.radius
+        scheduledEndTime: session.scheduledEndTime || null,
+        radius: session.radius,
+        isReopen: Boolean(session.__isReopen)
     };
 
     io.to(getClassGroupRoom(classGroupId)).emit("attendance:started", payload);
@@ -291,6 +761,96 @@ function emitAttendanceStarted(session, scheduleItem) {
 
     if (payload.collegeId) {
         io.to(getAdminCollegeRoom(payload.collegeId)).emit("attendance:started:admin", payload);
+    }
+}
+
+function emitAttendanceReopened(session, scheduleItem) {
+    const io = getIO();
+
+    if (!io || !session || !scheduleItem) {
+        return;
+    }
+
+    const classGroupId = getId(session.classGroup || scheduleItem.classGroup);
+
+    if (!classGroupId) {
+        return;
+    }
+
+    const payload = {
+        sessionId: getId(session._id),
+        scheduleId: getId(session.schedule || scheduleItem._id),
+        classGroupId: classGroupId,
+        subjectId: getId(session.subject || scheduleItem.subject),
+        teacherId: getId(session.teacher || scheduleItem.teacher),
+        subjectName: scheduleItem.subject ? scheduleItem.subject.subjectName : "Subject",
+        status: "ACTIVE",
+        canMarkAttendance: true,
+        message: "Attendance has been reopened. You can mark your attendance now.",
+        reopenedAt: new Date(),
+        effectiveEndTime: session.endTime || null,
+        isReopen: true
+    };
+
+    // Emit both the dedicated reopen event AND the started event so all listeners catch it
+    io.to(getClassGroupRoom(classGroupId)).emit("attendance:reopened", payload);
+    io.to(getClassGroupRoom(classGroupId)).emit("attendance:started", Object.assign({}, payload, {
+        latitude: Number(session.latitude || 0),
+        longitude: Number(session.longitude || 0),
+        teacherGpsAccuracy: Number(session.teacherGpsAccuracy || 0),
+        startTime: session.startTime,
+        endTime: session.endTime,
+        radius: session.radius
+    }));
+
+    const teacherId = getId(session.teacher || scheduleItem.teacher);
+    if (teacherId) {
+        io.to(getTeacherRoom(teacherId)).emit("attendance:started:teacher", payload);
+    }
+
+    const collegeId = getId(session.college);
+    if (collegeId) {
+        io.to(getAdminCollegeRoom(collegeId)).emit("attendance:started:admin", payload);
+    }
+}
+
+function emitAttendanceRecordUpdated(session, student, attendanceRecord) {
+    const io = getIO();
+
+    if (!io || !session || !student || !attendanceRecord) {
+        return;
+    }
+
+    const teacherId = getId(session.teacher);
+    const collegeId = getId(session.college);
+
+    const payload = {
+        sessionId: getId(session._id),
+        scheduleId: getId(session.schedule),
+        studentId: getId(student._id),
+        studentName: student.fullName || "Student",
+        enrollmentNumber: student.enrollmentNumber || "",
+        oldStatus: "ABSENT",
+        newStatus: attendanceRecord.status || "PRESENT",
+        attendanceRecordId: getId(attendanceRecord._id),
+        presentCount: session.attendanceSummary ? session.attendanceSummary.totalPresent : 0,
+        absentCount: session.attendanceSummary ? session.attendanceSummary.totalAbsent : 0,
+        totalMarked: session.attendanceSummary ? session.attendanceSummary.totalMarked : 0,
+        message: "Attendance marked present.",
+        updatedAt: new Date()
+    };
+
+    // Notify the student themselves
+    io.to(getStudentRoom(student._id)).emit("attendance:record-updated", payload);
+
+    // Notify teacher live dashboard
+    if (teacherId) {
+        io.to(getTeacherRoom(teacherId)).emit("attendance:record-updated", payload);
+    }
+
+    // Notify admin (best-effort)
+    if (collegeId) {
+        io.to(getAdminCollegeRoom(collegeId)).emit("attendance:record-updated", payload);
     }
 }
 
@@ -313,6 +873,9 @@ function emitAttendanceEnded(session) {
         teacherId: teacherId,
         collegeId: collegeId,
         status: session.status,
+        absencesFinalized: Boolean(session.absentsMarkedAt),
+        absentsMarkedAt: session.absentsMarkedAt || null,
+        closedAt: session.closedAt || null,
         totalPresent: session.attendanceSummary ? session.attendanceSummary.totalPresent : 0,
         totalAbsent: session.attendanceSummary ? session.attendanceSummary.totalAbsent : 0,
         totalMarked: session.attendanceSummary ? session.attendanceSummary.totalMarked : 0
@@ -329,6 +892,18 @@ function emitAttendanceEnded(session) {
     if (collegeId) {
         io.to(getAdminCollegeRoom(collegeId)).emit("attendance:ended:admin", payload);
     }
+
+    liveLocationStore.clearSession(getId(session._id));
+    AttendanceSession.updateOne(
+        { _id: getId(session._id), liveDevices: { $exists: true, $ne: [] } },
+        {
+            $set: {
+                "liveDevices.$[].online": false
+            }
+        }
+    ).catch(function () {
+        // best-effort cleanup for persisted live-device status
+    });
 }
 
 function emitAttendanceMarked(session, student, attendanceRecord, distance) {
@@ -347,7 +922,7 @@ function emitAttendanceMarked(session, student, attendanceRecord, distance) {
         studentName: student.fullName,
         enrollmentNumber: student.enrollmentNumber,
         attendanceRecordId: attendanceRecord ? getId(attendanceRecord._id) : "",
-        status: "PRESENT",
+        status: attendanceRecord && attendanceRecord.status ? attendanceRecord.status : "PRESENT",
         distance: Math.round(distance || 0),
         totalPresent: session.presentStudents ? session.presentStudents.length : 0,
         totalAbsent: session.absentStudents ? session.absentStudents.length : 0,
@@ -520,6 +1095,8 @@ module.exports = {
     emitAttendanceStarted,
     emitAttendanceEnded,
     emitAttendanceMarked,
+    emitAttendanceReopened,
+    emitAttendanceRecordUpdated,
     emitSuspiciousAttendanceAttempt,
     emitScheduleChanged,
     emitNotification,

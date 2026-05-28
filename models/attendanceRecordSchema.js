@@ -40,7 +40,7 @@ const attendanceRecordSchema = new mongoose.Schema({
 
     status: {
         type: String,
-        enum: ["PRESENT", "ABSENT", "LATE", "EXCUSED"],
+        enum: ["PRESENT", "PENDING", "LATE", "ABSENT", "EXCUSED"],
         default: "PRESENT"
     },
 
@@ -94,6 +94,57 @@ const attendanceRecordSchema = new mongoose.Schema({
     markedAt: {
         type: Date,
         default: Date.now
+    },
+
+    markedBy: {
+        type: String,
+        enum: ["STUDENT", "TEACHER", "ADMIN", "SYSTEM"],
+        default: "STUDENT"
+    },
+
+    absenceType: {
+        type: String,
+        enum: ["AUTO_ABSENT", "MANUAL_ABSENT", null],
+        default: null
+    },
+
+    autoAbsentAt: {
+        type: Date
+    },
+
+    autoAbsentReason: {
+        type: String
+    },
+
+    isFinalLocked: {
+        type: Boolean,
+        default: false
+    },
+
+    finalizedAt: {
+        type: Date
+    },
+
+    effectiveEndTimeUsed: {
+        type: Date
+    },
+
+    wasReopenedAfterExtension: {
+        type: Boolean,
+        default: false
+    },
+
+    wasAutoAbsentOverridden: {
+        type: Boolean,
+        default: false
+    },
+
+    autoAbsentOverriddenAt: {
+        type: Date
+    },
+
+    overrideReason: {
+        type: String
     }
 
 }, {

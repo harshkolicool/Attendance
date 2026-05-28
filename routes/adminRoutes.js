@@ -11,6 +11,7 @@ const Teacher = require("../models/teacherSchema");
 const Student = require("../models/studentSchema");
 const Schedule = require("../models/scheduleSchema");
 const AttendanceSession = require("../models/attendanceSessionSchema");
+const attendanceWindow = require("../utils/attendanceWindow");
 const AttendanceRecord = require("../models/attendanceRecordSchema");
 const AttendanceAttempt = require("../models/attendanceAttemptSchema");
 const PasskeySetupRequest = require("../models/passkeySetupRequestSchema");
@@ -213,6 +214,7 @@ function getFlashMessage(code) {
     if (code === "class_group_archived") return "Class group deleted successfully. Existing attendance history remains intact.";
     
     if (code === "teacher_archived") return "Teacher deleted successfully. Existing attendance history remains intact.";
+    if (code === "subject_archived") return "Subject deleted successfully. Existing attendance history remains intact.";
     if (code === "classroom_archived") return "Classroom deleted successfully. Existing attendance history remains intact.";
     if (code === "student_archived") return "Student deleted successfully. Existing attendance history remains intact.";
     if (code === "bulk_deleted") return "Bulk delete completed successfully.";
@@ -932,6 +934,57 @@ async function deleteClassGroupRecord(collegeId, classGroupId) {
         reason: "class-group-deleted",
         collegeId: collegeId,
         classGroupId: classGroupId
+    });
+
+    return { code: "deleted" };
+}
+
+async function deleteSubjectRecord(collegeId, subjectId) {
+    const subject = await Subject.findOne({
+        _id: subjectId,
+        college: collegeId
+    });
+
+    if (!subject) {
+        return { code: "invalid_subject" };
+    }
+
+    const hasSchedules = await Schedule.exists({
+        college: collegeId,
+        subject: subjectId
+    });
+
+    const hasAttendanceSessions = await AttendanceSession.exists({
+        college: collegeId,
+        subject: subjectId
+    });
+
+    if (hasSchedules || hasAttendanceSessions) {
+        await Subject.updateOne(
+            { _id: subjectId, college: collegeId },
+            { $set: { isActive: false } }
+        );
+        return { code: "subject_archived" };
+    }
+
+    await Teacher.updateMany(
+        { college: collegeId },
+        { $pull: { subjects: subject._id } }
+    );
+
+    await Student.updateMany(
+        { college: collegeId },
+        { $pull: { subjects: subject._id } }
+    );
+
+    await ClassGroup.updateOne(
+        { _id: subject.classGroup, college: collegeId },
+        { $pull: { subjects: subject._id } }
+    );
+
+    await Subject.deleteOne({
+        _id: subjectId,
+        college: collegeId
     });
 
     return { code: "deleted" };
@@ -2936,63 +2989,8 @@ router.post("/subjects/:id/delete", isCollegeAdmin, async function (req, res) {
             return res.redirect("/admin/subjects?message=invalid_id");
         }
 
-        const subject = await Subject.findOne({
-            _id: subjectId,
-            college: collegeId
-        });
-
-        if (!subject) {
-            return res.redirect("/admin/subjects?message=invalid_subject");
-        }
-
-        const hasSchedules = await Schedule.exists({
-            college: collegeId,
-            subject: subjectId
-        });
-
-        const hasAttendanceSessions = await AttendanceSession.exists({
-            college: collegeId,
-            subject: subjectId
-        });
-
-        if (hasSchedules || hasAttendanceSessions) {
-            return res.redirect("/admin/subjects?message=in_use");
-        }
-
-        await Teacher.updateMany(
-            {
-                college: collegeId
-            },
-            {
-                $pull: { subjects: subject._id }
-            }
-        );
-
-        await Student.updateMany(
-            {
-                college: collegeId
-            },
-            {
-                $pull: { subjects: subject._id }
-            }
-        );
-
-        await ClassGroup.updateOne(
-            {
-                _id: subject.classGroup,
-                college: collegeId
-            },
-            {
-                $pull: { subjects: subject._id }
-            }
-        );
-
-        await Subject.deleteOne({
-            _id: subjectId,
-            college: collegeId
-        });
-
-        res.redirect("/admin/subjects?message=deleted");
+        const result = await deleteSubjectRecord(collegeId, subjectId);
+        res.redirect("/admin/subjects?message=" + result.code);
 
     } catch (err) {
         console.log("ADMIN DELETE SUBJECT ERROR:");
@@ -5052,6 +5050,51 @@ router.post("/schedules/:id/update", isCollegeAdmin, async function (req, res) {
         schedule.classroom = classroomId;
 
         await schedule.save();
+
+        // Check if we need to reopen any sessions for today due to extension
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+
+        const sessionsToUpdate = await AttendanceSession.find({
+            schedule: schedule._id,
+            startTime: { $gte: today, $lt: tomorrow }
+        });
+
+        for (let i = 0; i < sessionsToUpdate.length; i++) {
+            const sess = sessionsToUpdate[i];
+            const windowInfo = attendanceWindow.isAttendanceWindowOpen(sess, schedule);
+            if (windowInfo.isOpen) {
+                sess.isActive = true;
+                sess.status = "ACTIVE";
+                sess.wasReopenedAfterExtension = true;
+                
+                if (windowInfo.effectiveEnd) {
+                    sess.effectiveEndTime = windowInfo.effectiveEnd;
+                    sess.endTime = windowInfo.effectiveEnd;
+                }
+                
+                await sess.save();
+
+                // Unlock AUTO_ABSENT records
+                await AttendanceRecord.updateMany(
+                    {
+                        attendanceSession: sess._id,
+                        absenceType: "AUTO_ABSENT"
+                    },
+                    {
+                        $set: {
+                            isFinalLocked: false,
+                            wasReopenedAfterExtension: true
+                        }
+                    }
+                );
+                
+                // Let live clients know session is active again
+                socketManager.emitAttendanceStarted(sess);
+            }
+        }
 
         socketManager.emitScheduleChanged({
             reason: "updated",

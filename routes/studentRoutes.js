@@ -4,6 +4,7 @@ const router = express.Router();
 
 const Student = require("../models/studentSchema");
 const AttendanceSession = require("../models/attendanceSessionSchema");
+const attendanceWindow = require("../utils/attendanceWindow");
 const { expireOneSession } = require("../utils/attendanceExpiryJob");
 const AttendanceRecord = require("../models/attendanceRecordSchema");
 const AttendanceAttempt = require("../models/attendanceAttemptSchema");
@@ -11,7 +12,11 @@ const Schedule = require("../models/scheduleSchema");
 const PasskeySetupRequest = require("../models/passkeySetupRequestSchema");
 
 const { sortSchedulesByTime } = require("../utils/scheduleTime");
-const getDistanceInMeters = require("../utils/geoDistance");
+const {
+    evaluateLocationRange,
+    getLocationDecisionMessage,
+    MAX_GPS_ACCURACY_METERS
+} = require("../utils/locationVerification");
 const socketManager = require("../utils/socketManager");
 const crypto = require("crypto");
 const {
@@ -36,54 +41,7 @@ const {
     getSimpleWebAuthnServer
 } = require("../utils/webauthnConfig");
 
-const MAX_GPS_ACCURACY_METERS = 50;
-const TRUSTED_DEVICE_ACTIVATION_DELAY_MINUTES = process.env.NODE_ENV === "production" ? 10 : 0;
-const MAX_GPS_UNCERTAINTY_ALLOWANCE_METERS = 25;
-const SMALL_RADIUS_THRESHOLD_METERS = 10;
-const SMALL_RADIUS_GRACE_METERS = 8;
 
-function getGpsUncertaintyAllowanceMeters(studentAccuracy, teacherAccuracy, allowedRadius) {
-    let allowance = 0;
-
-    if (Number.isFinite(Number(studentAccuracy)) && Number(studentAccuracy) > 0) {
-        allowance += Number(studentAccuracy);
-    }
-
-    if (Number.isFinite(Number(teacherAccuracy)) && Number(teacherAccuracy) > 0) {
-        allowance += Number(teacherAccuracy);
-    }
-
-    /*
-        For very small radii (for example 1m), real-world GPS jitter can be
-        larger than the radius even when student is physically at the location.
-    */
-    if (Number(allowedRadius) < SMALL_RADIUS_THRESHOLD_METERS) {
-        allowance += SMALL_RADIUS_GRACE_METERS;
-    }
-
-    return Math.min(allowance, MAX_GPS_UNCERTAINTY_ALLOWANCE_METERS);
-}
-
-function evaluateRadiusCheck(distanceMeters, allowedRadiusMeters, studentAccuracyMeters, teacherAccuracyMeters) {
-    const measuredDistance = Number(distanceMeters) || 0;
-    const allowedRadius = Number(allowedRadiusMeters) || 0;
-
-    const uncertaintyAllowance = getGpsUncertaintyAllowanceMeters(
-        studentAccuracyMeters,
-        teacherAccuracyMeters,
-        allowedRadius
-    );
-
-    const minimumPossibleDistance = Math.max(0, measuredDistance - uncertaintyAllowance);
-
-    return {
-        measuredDistance: measuredDistance,
-        allowedRadius: allowedRadius,
-        uncertaintyAllowance: uncertaintyAllowance,
-        minimumPossibleDistance: minimumPossibleDistance,
-        isOutside: minimumPossibleDistance > allowedRadius
-    };
-}
 
 function isStudent(req, res, next) {
     if (!req.isAuthenticated()) {
@@ -142,6 +100,96 @@ function sameId(a, b) {
     }
 
     return getId(a) === getId(b);
+}
+
+function getAttendanceStatusPriority(status) {
+    if (status === "PRESENT" || status === "LATE" || status === "EXCUSED") {
+        return 3;
+    }
+
+    if (status === "ABSENT") {
+        return 2;
+    }
+
+    if (status === "PENDING") {
+        return 1;
+    }
+
+    return 0;
+}
+
+function timeTextToMinutes(timeText) {
+    if (!timeText || typeof timeText !== "string") {
+        return null;
+    }
+
+    const text = timeText.trim().toUpperCase();
+    const amPmMatch = text.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/);
+
+    if (amPmMatch) {
+        let hours = Number(amPmMatch[1]);
+        const minutes = Number(amPmMatch[2]);
+
+        if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+            return null;
+        }
+
+        if (amPmMatch[3] === "PM" && hours !== 12) {
+            hours += 12;
+        }
+
+        if (amPmMatch[3] === "AM" && hours === 12) {
+            hours = 0;
+        }
+
+        return (hours * 60) + minutes;
+    }
+
+    const plainMatch = text.match(/^(\d{1,2}):(\d{2})$/);
+
+    if (!plainMatch) {
+        return null;
+    }
+
+    return (Number(plainMatch[1]) * 60) + Number(plainMatch[2]);
+}
+
+function getScheduleStartDateTime(session) {
+    if (!session || !session.schedule || !session.schedule.startTime) {
+        return session && session.startTime ? new Date(session.startTime) : null;
+    }
+
+    const minutes = timeTextToMinutes(session.schedule.startTime);
+
+    if (minutes === null) {
+        return session.startTime ? new Date(session.startTime) : null;
+    }
+
+    const date = session.startTime ? new Date(session.startTime) : new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setMinutes(minutes);
+    return date;
+}
+
+function getAttendanceStatusForMark(session, markedAt) {
+    // Per user requirement: completely remove LATE logic from this flow.
+    // If student successfully marks attendance, status must always become PRESENT.
+    return "PRESENT";
+}
+
+function setScheduleAttendanceStatus(statusMap, scheduleId, nextStatus) {
+    if (!scheduleId || !nextStatus || !nextStatus.status) {
+        return;
+    }
+
+    const existing = statusMap[scheduleId];
+
+    if (
+        !existing ||
+        getAttendanceStatusPriority(nextStatus.status) >= getAttendanceStatusPriority(existing.status)
+    ) {
+        statusMap[scheduleId] = nextStatus;
+    }
 }
 
 function getStudentIdFromRequest(req) {
@@ -562,6 +610,7 @@ async function getStudentPageData(req) {
             $lte: todayRange.end
         }
     })
+        .sort({ createdAt: 1 })
         .populate("schedule")
         .populate("subject")
         .populate("classroom")
@@ -575,6 +624,7 @@ async function getStudentPageData(req) {
         status: "ACTIVE",
         endTime: { $gt: new Date() }
     })
+        .sort({ createdAt: 1 })
         .populate("schedule")
         .populate("subject")
         .populate("classroom")
@@ -627,10 +677,11 @@ async function getStudentPageData(req) {
             const matchedSchedule = findScheduleForSession(schedules, matchedSession);
 
             if (matchedSchedule) {
-                attendanceStatusBySchedule[matchedSchedule._id.toString()] = {
+                setScheduleAttendanceStatus(attendanceStatusBySchedule, matchedSchedule._id.toString(), {
                     status: record.status,
-                    sessionId: matchedSession._id.toString()
-                };
+                    sessionId: matchedSession._id.toString(),
+                    record: record
+                });
             }
         }
     }
@@ -639,7 +690,10 @@ async function getStudentPageData(req) {
     let absentCount = 0;
 
     for (let key in attendanceStatusBySchedule) {
-        if (attendanceStatusBySchedule[key].status === "PRESENT") {
+        if (
+            attendanceStatusBySchedule[key].status === "PRESENT" ||
+            attendanceStatusBySchedule[key].status === "LATE"
+        ) {
             presentCount++;
         }
 
@@ -685,7 +739,7 @@ async function getStudentPageData(req) {
 
         dashboardSubjectMap[subjectKey].total++;
 
-        if (record.status === "PRESENT") {
+        if (getAttendanceStatusPriority(record.status) === 3) {
             dashboardSubjectMap[subjectKey].present++;
         }
 
@@ -715,7 +769,8 @@ async function getStudentPageData(req) {
         trustedDeviceCount: getActiveTrustedDeviceCount(student),
         hasPasskey: getPasskeyCount(student) > 0,
         hasTrustedDevice: !!getTrustedDeviceFromStudent(student, req),
-        hasUsableTrustedDevice: isTrustedDeviceUsable(getTrustedDeviceFromStudent(student, req))
+        hasUsableTrustedDevice: isTrustedDeviceUsable(getTrustedDeviceFromStudent(student, req)),
+        attendanceWindow: attendanceWindow
     };
 }
 
@@ -847,7 +902,7 @@ router.get("/schedule", isStudent, async function (req, res) {
             isActive: true,
             status: "ACTIVE",
             endTime: { $gt: new Date() }
-        });
+        }).sort({ createdAt: 1 });
 
         const activeSessionsBySchedule = {};
 
@@ -878,24 +933,27 @@ router.get("/schedule", isStudent, async function (req, res) {
                 $gte: todayRange.start,
                 $lte: todayRange.end
             }
-        });
+        }).sort({ createdAt: 1 });
 
         const todaySessionIds = todaySessions.map(function (session) {
             return session._id;
         });
 
         const scheduleIdByTodaySession = {};
+        const todaySessionsBySchedule = {};
 
         for (let i = 0; i < todaySessions.length; i++) {
             if (todaySessions[i].schedule) {
                 scheduleIdByTodaySession[todaySessions[i]._id.toString()] =
                     todaySessions[i].schedule.toString();
+                todaySessionsBySchedule[todaySessions[i].schedule.toString()] = todaySessions[i];
             } else {
                 const matchedSchedule = findScheduleForSession(schedules, todaySessions[i]);
 
                 if (matchedSchedule && matchedSchedule._id) {
                     scheduleIdByTodaySession[todaySessions[i]._id.toString()] =
                         matchedSchedule._id.toString();
+                    todaySessionsBySchedule[matchedSchedule._id.toString()] = todaySessions[i];
                 }
             }
         }
@@ -916,10 +974,11 @@ router.get("/schedule", isStudent, async function (req, res) {
             const scheduleId = scheduleIdByTodaySession[sessionId];
 
             if (scheduleId) {
-                attendanceStatusBySchedule[scheduleId] = {
+                setScheduleAttendanceStatus(attendanceStatusBySchedule, scheduleId, {
                     status: record.status,
-                    sessionId: sessionId
-                };
+                    sessionId: sessionId,
+                    record: record
+                });
             }
         }
 
@@ -941,6 +1000,7 @@ router.get("/schedule", isStudent, async function (req, res) {
             today: getTodayName(),
             weeklyScheduleGroups: weeklyScheduleGroups,
             activeSessionsBySchedule: activeSessionsBySchedule,
+            todaySessionsBySchedule: todaySessionsBySchedule,
             attendanceStatusBySchedule: attendanceStatusBySchedule,
             passkeyCount: getPasskeyCount(student),
             trustedDeviceCount: getActiveTrustedDeviceCount(student),
@@ -1242,7 +1302,7 @@ router.get("/attendance/passkey/options/:sessionId", isStudent, async function (
             attendanceSession: session._id
         });
 
-        if (alreadyMarked) {
+        if (alreadyMarked && (alreadyMarked.status === "PRESENT" || alreadyMarked.status === "LATE")) {
             return res.status(400).json({
                 success: false,
                 message: "Attendance already marked."
@@ -1585,7 +1645,7 @@ router.get("/attendance/device-token/:sessionId", isStudent, async function (req
             attendanceSession: session._id
         });
 
-        if (alreadyMarked) {
+        if (alreadyMarked && (alreadyMarked.status === "PRESENT" || alreadyMarked.status === "LATE")) {
             return res.status(400).json({
                 success: false,
                 message: "Attendance already marked."
@@ -1716,7 +1776,8 @@ router.post("/attendance/mark", isStudent, async function (req, res) {
             });
         }
 
-        if (!session.isActive || session.status !== "ACTIVE") {
+        const windowInfo = attendanceWindow.isAttendanceWindowOpen(session, session.schedule);
+        if (!windowInfo.isOpen) {
             await saveAttendanceAttempt({
                 req,
                 student,
@@ -1733,30 +1794,6 @@ router.post("/attendance/mark", isStudent, async function (req, res) {
             return res.status(400).json({
                 success: false,
                 message: "Attendance session is closed."
-            });
-        }
-
-        if (session.endTime < new Date()) {
-            session.isActive = false;
-            session.status = "EXPIRED";
-            await session.save();
-
-            await saveAttendanceAttempt({
-                req,
-                student,
-                session,
-                result: "REJECTED",
-                reasonCode: "SESSION_EXPIRED",
-                reasonMessage: "Attendance session expired.",
-                latitude,
-                longitude,
-                accuracy,
-                browserFingerprint
-            });
-
-            return res.status(400).json({
-                success: false,
-                message: "Attendance session expired."
             });
         }
 
@@ -1831,27 +1868,27 @@ router.post("/attendance/mark", isStudent, async function (req, res) {
         });
 
         if (alreadyMarked) {
-            await saveAttendanceAttempt({
-                req,
-                student,
-                session,
-                result: "REJECTED",
-                reasonCode: "ALREADY_MARKED",
-                reasonMessage: "Student tried to mark attendance again.",
-                latitude,
-                longitude,
-                accuracy,
-                browserFingerprint,
-                passkeyCredentialId: tokenCheck.payload.cid
-            });
-
-            return res.status(400).json({
-                success: false,
-                message: "Attendance already marked."
-            });
+            // If record is PRESENT (or legacy LATE) and we are NOT in an auto-absent override
+            // scenario, check if the teacher has actively reopened the session.
+            if (alreadyMarked.status === "PRESENT" || alreadyMarked.status === "LATE") {
+                // Student already successfully marked — return success gracefully.
+                // The frontend may show the button again after a reopen event but
+                // there is nothing to update on the backend.
+                return res.json({
+                    success: true,
+                    alreadyPresent: true,
+                    status: "PRESENT",
+                    message: "Attendance already marked present."
+                });
+            }
         }
 
-        if (Number(accuracy) > MAX_GPS_ACCURACY_METERS) {
+        // ── GPS accuracy pre-check ─────────────────────────────────────────────────
+        // Only hard-block if accuracy is truly unusable (e.g. 500m cached cell reading).
+        // For normal indoor poor-GPS (50–150m), let evaluateLocationRange decide using
+        // the minimum-possible-distance model which accounts for accuracy correctly.
+        const HARD_ACCURACY_BLOCK_METERS = 300; // only block truly broken GPS
+        if (Number(accuracy) > HARD_ACCURACY_BLOCK_METERS) {
             await saveAttendanceAttempt({
                 req,
                 student,
@@ -1869,11 +1906,9 @@ router.post("/attendance/mark", isStudent, async function (req, res) {
             return res.status(403).json({
                 success: false,
                 message:
-                    "Your GPS accuracy is too low. Move near a window and try again. Accuracy: " +
+                    "GPS accuracy is too poor (" +
                     Math.round(Number(accuracy)) +
-                    "m. Required: " +
-                    MAX_GPS_ACCURACY_METERS +
-                    "m or better."
+                    " m). Please step outside or near a window, wait 10 seconds, then try again."
             });
         }
 
@@ -1909,67 +1944,47 @@ router.post("/attendance/mark", isStudent, async function (req, res) {
             });
         }
 
-        const distance = getDistanceInMeters(
-            Number(latitude),
-            Number(longitude),
-            Number(sessionLatitude),
-            Number(sessionLongitude)
-        );
-
-        const radiusCheck = evaluateRadiusCheck(
-            distance,
+        const evaluation = evaluateLocationRange(
+            sessionLatitude,
+            sessionLongitude,
+            latitude,
+            longitude,
             sessionRadius,
             studentGpsAccuracy,
             teacherGpsAccuracy
         );
-        const verifiedDistanceFromClassroom = Math.max(0, radiusCheck.minimumPossibleDistance);
-        const roundedMeasuredDistance = Math.round(radiusCheck.measuredDistance);
-        const roundedVerifiedDistance = Math.round(verifiedDistanceFromClassroom);
 
-        if (radiusCheck.isOutside) {
+        if (evaluation.isOutside) {
             await saveAttendanceAttempt({
                 req,
                 student,
                 session,
                 result: "REJECTED",
                 reasonCode: "OUTSIDE_RADIUS",
-                reasonMessage:
-                    "Outside allowed range after GPS uncertainty check. " +
-                    "Measured " +
-                    roundedMeasuredDistance +
-                    "m, allowed " +
-                    Math.round(radiusCheck.allowedRadius) +
-                    "m, uncertainty " +
-                    Math.round(radiusCheck.uncertaintyAllowance) +
-                    "m, min possible distance " +
-                    Math.round(radiusCheck.minimumPossibleDistance) +
-                    "m.",
+                reasonMessage: getLocationDecisionMessage(evaluation),
                 latitude,
                 longitude,
                 teacherLatitude: sessionLatitude,
                 teacherLongitude: sessionLongitude,
-                distance: radiusCheck.measuredDistance,
-                allowedRadius: radiusCheck.allowedRadius,
-                accuracy: studentGpsAccuracy,
+                distance: evaluation.measuredDistance,
+                allowedRadius: evaluation.configuredRadius,
+                effectiveRadius: evaluation.effectiveRadius,
+                accuracy: evaluation.studentAccuracy,
+                teacherAccuracy: evaluation.teacherAccuracy,
                 browserFingerprint,
                 passkeyCredentialId: tokenCheck.payload.cid
             });
 
             return res.status(403).json({
                 success: false,
-                message:
-                    "You appear outside the allowed range. " +
-                    "Measured: " +
-                    roundedMeasuredDistance +
-                    "m, Allowed: " +
-                    Math.round(radiusCheck.allowedRadius) +
-                    "m.",
-                distance: roundedMeasuredDistance,
-                allowedRadius: Math.round(radiusCheck.allowedRadius),
-                minimumPossibleDistance: Math.round(radiusCheck.minimumPossibleDistance),
-                uncertaintyAllowance: Math.round(radiusCheck.uncertaintyAllowance),
-                studentAccuracy: Math.round(studentGpsAccuracy),
-                teacherAccuracy: Math.round(teacherGpsAccuracy)
+                message: getLocationDecisionMessage(evaluation),
+                distance: evaluation.measuredDistance,
+                minimumPossibleDistance: evaluation.minimumPossibleDistance,
+                configuredRadius: evaluation.configuredRadius,
+                effectiveRadius: Math.round(evaluation.effectiveRadius),
+                uncertaintyAllowance: Math.round(evaluation.uncertaintyAllowance),
+                studentAccuracy: Math.round(evaluation.studentAccuracy),
+                teacherAccuracy: Math.round(evaluation.teacherAccuracy)
             });
         }
 
@@ -1982,32 +1997,58 @@ router.post("/attendance/mark", isStudent, async function (req, res) {
         const verificationMethod = isTrustedDeviceToken
             ? "TRUSTED_DEVICE_GEOLOCATION"
             : "PASSKEY_GEOLOCATION";
+        const markedAt = new Date();
 
-        const attendanceRecord = await AttendanceRecord.create({
-            student: student._id,
-            attendanceSession: session._id,
-            subject: getId(session.subject),
-            college: getId(session.college),
-            classGroup: getId(session.classGroup),
-            classroom: getId(session.classroom),
-            status: "PRESENT",
-            latitude: Number(latitude),
-            longitude: Number(longitude),
-            distanceFromClassroom: roundedVerifiedDistance,
-            verificationMethod: verificationMethod,
-            deviceInfo: {
-                userAgent: req.headers["user-agent"],
-                ip: requestIp,
-                browserFingerprint: browserFingerprint,
-                gpsAccuracy: studentGpsAccuracy,
-                teacherGpsAccuracy: teacherGpsAccuracy,
-                measuredDistanceFromClassroom: roundedMeasuredDistance,
-                verifiedDistanceFromClassroom: roundedVerifiedDistance,
-                allowedRadius: Math.round(radiusCheck.allowedRadius),
-                radiusUncertaintyAllowance: Math.round(radiusCheck.uncertaintyAllowance),
-                minimumPossibleDistance: Math.round(radiusCheck.minimumPossibleDistance),
-                passkeyCredentialId: tokenCheck.payload.cid
+        let attendanceRecord;
+        let wasAbsentOverridden = false;
+
+        const deviceInfo = {
+            userAgent: req.headers["user-agent"],
+            ip: getClientIp(req),
+            browserFingerprint: browserFingerprint,
+            gpsAccuracy: evaluation.studentAccuracy,
+            teacherGpsAccuracy: evaluation.teacherAccuracy,
+            measuredDistanceFromClassroom: evaluation.measuredDistance,
+            verifiedDistanceFromClassroom: evaluation.measuredDistance,
+            allowedRadius: evaluation.configuredRadius,
+            radiusUncertaintyAllowance: evaluation.uncertaintyAllowance,
+            minimumPossibleDistance: evaluation.minimumPossibleDistance || 0,
+            passkeyCredentialId: tokenCheck.payload.cid
+        };
+
+        // ── OLD RECORD DELETION PATH ──────────────────────────────────────────
+        // If student has an existing ABSENT (or non-present) record and the
+        // attendance window is currently open (teacher started/reopened).
+        if (alreadyMarked) {
+            // Delete the old non-present record
+            await AttendanceRecord.findByIdAndDelete(alreadyMarked._id);
+            wasAbsentOverridden = true;
+
+            // Remove the old ID from the session array to prevent dangling references
+            if (session.attendanceRecords) {
+                session.attendanceRecords = session.attendanceRecords.filter(function(id) {
+                    return id.toString() !== alreadyMarked._id.toString();
+                });
             }
+        }
+
+        // ── NEW RECORD CREATION ───────────────────────────────────────────────
+        // Create a completely fresh PRESENT record. No LATE logic.
+        attendanceRecord = await AttendanceRecord.create({
+            student:             student._id,
+            attendanceSession:   session._id,
+            subject:             getId(session.subject),
+            college:             getId(session.college),
+            classGroup:          getId(session.classGroup),
+            classroom:           getId(session.classroom),
+            status:              "PRESENT",
+            latitude:            Number(latitude),
+            longitude:           Number(longitude),
+            distanceFromClassroom: evaluation.measuredDistance,
+            verificationMethod:  verificationMethod,
+            markedBy:            "STUDENT",
+            deviceInfo:          deviceInfo,
+            markedAt:            markedAt
         });
 
         if (!session.attendanceRecords) {
@@ -2022,17 +2063,28 @@ router.post("/attendance/mark", isStudent, async function (req, res) {
             session.absentStudents = [];
         }
 
+        // Always push the fresh new record ID
         session.attendanceRecords.push(attendanceRecord._id);
+
+        if (wasAbsentOverridden) {
+            // Override: remove from absentStudents, remove any stale present entry
+            session.absentStudents = session.absentStudents.filter(function (s) {
+                return s.student.toString() !== student._id.toString();
+            });
+            session.presentStudents = session.presentStudents.filter(function (s) {
+                return s.student.toString() !== student._id.toString();
+            });
+        }
 
         session.presentStudents.push({
             student: student._id,
             fullName: student.fullName,
             enrollmentNumber: student.enrollmentNumber,
-            status: "PRESENT",
+            status: attendanceRecord.status,
             attendanceRecord: attendanceRecord._id,
-            markedAt: new Date(),
+            markedAt: markedAt,
             verificationMethod: verificationMethod,
-            distanceFromClassroom: roundedVerifiedDistance
+            distanceFromClassroom: evaluation.measuredDistance
         });
 
         session.attendanceSummary = {
@@ -2043,6 +2095,12 @@ router.post("/attendance/mark", isStudent, async function (req, res) {
 
         await session.save();
 
+        // Always emit record-updated when an absent record was overridden to present.
+        // This updates the teacher live map and student sidebar counts in real time.
+        if (wasAbsentOverridden) {
+            socketManager.emitAttendanceRecordUpdated(session, student, attendanceRecord);
+        }
+
         await saveAttendanceAttempt({
             req,
             student,
@@ -2052,35 +2110,39 @@ router.post("/attendance/mark", isStudent, async function (req, res) {
             reasonMessage:
                 "Attendance marked successfully with passkey and geolocation. " +
                 "Measured " +
-                roundedMeasuredDistance +
+                Math.round(evaluation.measuredDistance) +
                 "m, allowed " +
-                Math.round(radiusCheck.allowedRadius) +
-                "m, uncertainty " +
-                Math.round(radiusCheck.uncertaintyAllowance) +
+                Math.round(evaluation.configuredRadius) +
+                "m, effective " +
+                Math.round(evaluation.effectiveRadius) +
                 "m.",
             latitude,
             longitude,
             teacherLatitude: sessionLatitude,
             teacherLongitude: sessionLongitude,
-            distance: radiusCheck.measuredDistance,
-            allowedRadius: radiusCheck.allowedRadius,
-            accuracy: studentGpsAccuracy,
+            distance: evaluation.measuredDistance,
+            allowedRadius: evaluation.configuredRadius,
+            effectiveRadius: evaluation.effectiveRadius,
+            accuracy: evaluation.studentAccuracy,
+            teacherAccuracy: evaluation.teacherAccuracy,
             browserFingerprint,
             passkeyCredentialId: tokenCheck.payload.cid
         });
 
-        socketManager.emitAttendanceMarked(session, student, attendanceRecord, verifiedDistanceFromClassroom);
+        socketManager.emitAttendanceMarked(session, student, attendanceRecord, evaluation.measuredDistance);
 
         res.json({
             success: true,
-            message: "Attendance marked successfully.",
-            status: "PRESENT",
-            distance: roundedVerifiedDistance,
-            measuredDistance: roundedMeasuredDistance,
-            allowedRadius: Math.round(radiusCheck.allowedRadius),
-            minimumPossibleDistance: Math.round(radiusCheck.minimumPossibleDistance),
-            uncertaintyAllowance: Math.round(radiusCheck.uncertaintyAllowance),
-            accuracy: Math.round(studentGpsAccuracy)
+            message: wasAbsentOverridden
+                ? "Attendance marked. Your record has been updated to present."
+                : "Attendance marked successfully.",
+            status: attendanceRecord.status,
+            distance: Math.round(evaluation.measuredDistance),
+            measuredDistance: Math.round(evaluation.measuredDistance),
+            allowedRadius: Math.round(evaluation.configuredRadius),
+            effectiveRadius: Math.round(evaluation.effectiveRadius),
+            uncertaintyAllowance: Math.round(evaluation.uncertaintyAllowance),
+            accuracy: Math.round(evaluation.studentAccuracy)
         });
     } catch (err) {
         if (err.code === 11000) {
@@ -2231,7 +2293,7 @@ router.get("/attendance-history", isStudent, async function (req, res) {
         const subjectSummaryMap = {};
 
         attendanceRecords.forEach(function (record) {
-            if (record.status === "PRESENT") {
+            if (getAttendanceStatusPriority(record.status) === 3) {
                 totalPresent++;
             }
 
@@ -2255,7 +2317,7 @@ router.get("/attendance-history", isStudent, async function (req, res) {
 
             subjectSummaryMap[subjectKey].total++;
 
-            if (record.status === "PRESENT") {
+            if (getAttendanceStatusPriority(record.status) === 3) {
                 subjectSummaryMap[subjectKey].present++;
             }
 
@@ -2296,7 +2358,7 @@ router.get("/attendance-history", isStudent, async function (req, res) {
             subjectWiseAttendanceMap[subjectKey].records.push(record);
             subjectWiseAttendanceMap[subjectKey].total++;
 
-            if (record.status === "PRESENT") {
+            if (getAttendanceStatusPriority(record.status) === 3) {
                 subjectWiseAttendanceMap[subjectKey].present++;
             }
 

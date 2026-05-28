@@ -144,6 +144,19 @@ function injectGlobalAssets(html) {
     }
 
     if (
+        (output.includes("/js/studentRealtime.js") || output.includes("studentRealtime.js")) &&
+        !output.includes("/js/studentLiveLocation.js")
+    ) {
+        const studentLiveScript = '\n<script src="/js/studentLiveLocation.js"></script>\n';
+
+        if (output.includes("</body>")) {
+            output = output.replace("</body>", studentLiveScript + "</body>");
+        } else {
+            output += studentLiveScript;
+        }
+    }
+
+    if (
         output.includes("/css/teacherDashboard.css") &&
         !output.includes("/js/teacherNav.js")
     ) {

@@ -395,56 +395,131 @@ button {
 
 .live-card {
     background: #ffffff;
-    border: 1px solid #fecaca;
-    border-radius: 10px;
-    padding: 14px;
-    margin-bottom: 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 20px;
+    padding: 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 .live-top {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    margin-bottom: 10px;
+    margin-bottom: 16px;
+    gap: 16px;
 }
 
 .live-top h4 {
-    font-size: 15px;
-    margin-bottom: 4px;
+    font-size: 18px;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0 0 4px 0;
+    text-transform: uppercase;
+    line-height: 1.3;
 }
 
 .live-top p {
-    font-size: 13px;
-    color: #6b7280;
+    font-size: 15px;
+    color: #64748b;
+    margin: 0;
+    font-weight: 500;
 }
 
 .live-badge {
     background: #ef4444;
     color: #ffffff;
-    font-size: 11px;
-    font-weight: bold;
-    padding: 5px 10px;
-    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 700;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-transform: uppercase;
+    flex-shrink: 0;
+    line-height: 1.1;
+    text-align: center;
 }
 
 .live-meta {
-    font-size: 13px;
-    color: #4b5563;
-    margin-bottom: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 20px;
+    color: #475569;
+    font-size: 15px;
 }
 
 .live-meta p {
-    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+}
+
+.live-meta i {
+    color: #64748b;
+    font-size: 16px;
+    width: 16px;
+    text-align: center;
+}
+
+.live-student-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 20px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.live-student-list li {
+    display: flex;
+    align-items: baseline;
+    font-size: 16px;
+    color: #0f172a;
+    position: relative;
+    padding-left: 20px;
+}
+
+.live-student-list li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 8px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: #1e293b;
+}
+
+.live-student-list strong {
+    font-weight: 700;
+    margin-right: 6px;
+}
+
+.live-student-list span {
+    color: #334155;
+    font-weight: 500;
 }
 
 .end-btn {
     background: #dc2626;
     color: #ffffff;
     border: none;
-    border-radius: 8px;
-    padding: 8px 12px;
-    font-size: 13px;
-    font-weight: bold;
+    border-radius: 12px;
+    padding: 12px 20px;
+    font-size: 15px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: background 0.2s;
 }
 
 .end-btn:hover {
@@ -565,6 +640,250 @@ button {
     justify-content: space-between;
     gap: 16px;
     margin-bottom: 16px;
+}
+
+/* ================= LIVE MAP (TEACHER) ================= */
+
+.teacher-map-card {
+    margin: 18px 0 22px;
+    padding: 18px;
+    border-radius: 24px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 14px 38px rgba(15, 23, 42, 0.06);
+}
+
+.teacher-map-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+}
+
+.teacher-map-title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 950;
+    color: #0f172a;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.teacher-map-subtitle {
+    margin: 6px 0 0;
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1.5;
+    max-width: 68ch;
+}
+
+.teacher-map-stats {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.teacher-map-pill {
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: #dcfce7;
+    color: #15803d;
+    font-size: 13px;
+    font-weight: 950;
+    white-space: nowrap;
+}
+
+.teacher-map-pill.ghost {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+
+.teacher-map-pill.neutral {
+    background: #e0e7ff;
+    color: #3730a3;
+}
+
+.teacher-map-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+
+.teacher-map-select-label {
+    font-size: 13px;
+    font-weight: 800;
+    color: #475569;
+}
+
+.teacher-map-select {
+    min-width: min(100%, 320px);
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    font-size: 14px;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.teacher-map-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.9fr);
+    gap: 14px;
+    align-items: stretch;
+}
+
+.teacher-map-wrapper {
+    position: relative;
+    width: 100%;
+    height: 420px;
+    border-radius: 18px;
+    overflow: hidden;
+    border: 1px solid #e2e8f0;
+    flex-shrink: 0;
+}
+
+.teacher-map-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 1000;
+    background: rgba(255, 255, 255, 0.88);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 24px;
+}
+
+.teacher-map-overlay-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    color: #475569;
+    font-size: 1rem;
+    font-weight: 800;
+    line-height: 1.5;
+}
+
+.teacher-map-overlay-inner strong {
+    color: #0f172a;
+    font-size: 1.1rem;
+}
+
+.teacher-map-roster-wrap {
+    border: 1px solid #e2e8f0;
+    border-radius: 18px;
+    background: #f8fafc;
+    padding: 14px;
+    height: 420px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.teacher-map-roster-header {
+    margin-bottom: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.teacher-map-roster-title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 950;
+    color: #0f172a;
+}
+
+.teacher-map-roster {
+    overflow-y: auto;
+    overflow-x: hidden;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-right: 4px;
+}
+
+.teacher-map-roster-empty {
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.5;
+    padding: 8px 2px;
+}
+
+.teacher-map {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+}
+
+.teacher-map-footer {
+    margin-top: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.teacher-map-hint {
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+@media (max-width: 1024px) {
+    .teacher-map-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .teacher-map-wrapper {
+        height: 340px;
+    }
+
+    .teacher-map-roster-wrap {
+        height: auto;
+        max-height: 360px;
+    }
+}
+
+@media (max-width: 768px) {
+    .teacher-map-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .teacher-map-wrapper {
+        height: 280px;
+    }
+
+    .teacher-map-roster-wrap {
+        height: auto;
+        max-height: 300px;
+        min-height: 200px;
+    }
+
+    .teacher-map-stats {
+        width: 100%;
+        flex-wrap: wrap;
+        justify-content: flex-start;
+    }
+
+    .teacher-map-pill {
+        font-size: 11px;
+        padding: 5px 8px;
+    }
 }
 
 .teacher-card-header h3 {

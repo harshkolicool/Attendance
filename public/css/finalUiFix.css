@@ -22,9 +22,11 @@ body {
 .admin-main,
 .student-main,
 .teacher-main,
-.platform-main {
+.platform-main,
+.schedule-main {
     min-width: 0;
     overflow-x: hidden;
+    margin-left: 0 !important;
 }
 
 .teacher-main *,
@@ -149,6 +151,8 @@ textarea {
     gap: 20px;
     align-items: start;
 }
+
+/* teacher map layout is managed entirely in teacherDashboard.css */
 
 .teacher-dashboard-page .date-box {
     width: 58px;
@@ -540,6 +544,12 @@ textarea {
         padding-right: 16px;
     }
 
+    .teacher-dashboard-page .teacher-schedule-class-card.class-card,
+    .student-main .class-content,
+    .student-main .class-body {
+        grid-template-columns: 1fr;
+    }
+
     .teacher-dashboard-page .teacher-schedule-filter-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -572,12 +582,6 @@ textarea {
     .admin-schedules-page .admin-schedule-org-toolbar,
     .admin-students-page .admin-csv-buttons,
     .platform-stats-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .teacher-dashboard-page .teacher-schedule-class-card.class-card,
-    .student-main .class-content,
-    .student-main .class-body {
         grid-template-columns: 1fr;
     }
 
@@ -914,4 +918,164 @@ svg {
     .admin-students-page .admin-student-actions {
         grid-template-columns: 1fr !important;
     }
+}
+
+/* =========================
+   Admin / platform form selects — remove browser default chrome
+   Works without wrapping in .select-shell since admin forms use
+   .admin-form-grid and .admin-field wrappers.
+========================= */
+.admin-form-grid select,
+.admin-field select,
+.admin-schedule-filter-field select,
+.admin-student-filter-field select,
+.platform-main select {
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%2364748b' d='M1 1l5 5 5-5'/%3E%3C/svg%3E") !important;
+    background-repeat: no-repeat !important;
+    background-position: right 14px center !important;
+    padding-right: 36px !important;
+    cursor: pointer !important;
+}
+
+/* Student schedule select */
+.student-main select,
+.schedule-main select {
+    appearance: none !important;
+    -webkit-appearance: none !important;
+}
+
+/* =========================
+   Notification pages — consistent layout
+========================= */
+.teacher-notification-item {
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    gap: 16px;
+    align-items: start;
+    padding: 18px 20px;
+}
+
+@media (max-width: 560px) {
+    .teacher-notification-item {
+        grid-template-columns: 44px 1fr;
+        gap: 12px;
+        padding: 14px 16px;
+    }
+
+    .teacher-notification-icon {
+        width: 44px !important;
+        height: 44px !important;
+        border-radius: 12px !important;
+    }
+}
+
+/* =========================
+   Admin table cells — prevent text overflow
+========================= */
+.admin-table td,
+.admin-table th {
+    max-width: 260px;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+
+/* =========================
+   Platform admin page improvements
+========================= */
+.platform-main .platform-card {
+    border-radius: 24px;
+    padding: 22px;
+}
+
+.platform-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 18px;
+}
+
+/* =========================
+   Student dashboard — history table fix
+========================= */
+.student-main .student-history-table-wrap,
+.student-main .teacher-table-wrap {
+    border-radius: 16px;
+    overflow: hidden;
+    overflow-x: auto;
+}
+
+/* =========================
+   Global input/select touch targets for mobile
+========================= */
+@media (max-width: 600px) {
+    input[type="text"],
+    input[type="email"],
+    input[type="password"],
+    input[type="number"],
+    input[type="date"],
+    input[type="time"],
+    input[type="search"],
+    textarea,
+    select {
+        min-height: 46px;
+        font-size: 16px !important; /* prevents iOS zoom */
+    }
+
+    .admin-form-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .admin-form-grid .admin-submit-field label {
+        display: none;
+    }
+
+    .class-group-form {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+/* =========================
+   Sidebar mobile — prevent content shift
+========================= */
+@media (max-width: 1280px) {
+    .ui-sidebar {
+        z-index: 1001 !important;
+        pointer-events: auto !important;
+    }
+
+    .ui-sidebar-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.45);
+        z-index: 900 !important;
+        backdrop-filter: blur(2px);
+        -webkit-backdrop-filter: blur(2px);
+    }
+
+    body.ui-sidebar-open .ui-sidebar-overlay {
+        display: block;
+    }
+
+    .ui-mobile-sidebar-toggle {
+        z-index: 1102 !important;
+    }
+}
+
+/* =========================
+   Map overlay improvement — ensure no grey background shows through
+========================= */
+.leaflet-container {
+    background: #e8f0f8 !important;
+}
+
+/* Ensure popup text is readable */
+.leaflet-popup-content-wrapper {
+    border-radius: 16px !important;
+    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.14) !important;
+}
+
+.leaflet-popup-tip-container {
+    margin-top: -1px;
 }

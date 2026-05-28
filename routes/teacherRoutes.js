@@ -1,5 +1,6 @@
 const socketManager = require("../utils/socketManager");
 const express = require("express");
+const { MAX_GPS_ACCURACY_METERS } = require("../utils/locationVerification");
 const router = express.Router();
 
 const Schedule = require("../models/scheduleSchema");
@@ -19,6 +20,9 @@ const {
     deleteNotification,
     clearAllNotifications
 } = require("../utils/notificationService");
+const {
+    finalizeAbsencesForSession
+} = require("../utils/attendanceExpiryJob");
 
 const {
     timeToMinutes,
@@ -102,6 +106,10 @@ function teacherGetPercent(part, total) {
     return Math.round((part / total) * 100);
 }
 
+function teacherIsPositiveAttendanceStatus(status) {
+    return status === "PRESENT" || status === "LATE" || status === "EXCUSED";
+}
+
 function teacherSafeObjectId(value) {
     if (!value || value === "all") {
         return null;
@@ -147,7 +155,7 @@ function isValidGpsAccuracy(value) {
     return (
         Number.isFinite(accuracy) &&
         accuracy > 0 &&
-        accuracy <= 50
+        accuracy <= MAX_GPS_ACCURACY_METERS
     );
 }
 
@@ -888,32 +896,56 @@ router.post("/attendance/start", isTeacher, async (req, res) => {
             sessionEndTime = classEndTime;
         }
 
-        const attendanceSession = await AttendanceSession.create({
-            schedule: scheduleItem._id,
-            teacher: req.user._id,
-            subject: scheduleItem.subject._id,
-            college: req.user.college,
-            classGroup: scheduleItem.classGroup._id,
-            classroom: scheduleItem.classroom._id,
-
-            latitude: Number(teacherLatitude),
-            longitude: Number(teacherLongitude),
-            teacherGpsAccuracy: Number(teacherAccuracy),
-            locationSource: "TEACHER_GPS",
-            radius: scheduleItem.classroom.radius || 100,
-
-            startTime: new Date(),
-            endTime: sessionEndTime,
-            status: "ACTIVE",
-            isActive: true
-        });
-
-        socketManager.emitAttendanceStarted(attendanceSession, scheduleItem);
+        let attendanceSession;
 
         if (previousSession) {
+            previousSession.endTime = sessionEndTime;
+            previousSession.scheduledEndTime = classEndTime || sessionEndTime;
+            previousSession.status = "ACTIVE";
+            previousSession.isActive = true;
+            previousSession.latitude = Number(teacherLatitude);
+            previousSession.longitude = Number(teacherLongitude);
+            previousSession.teacherGpsAccuracy = Number(teacherAccuracy);
+            previousSession.locationSource = "TEACHER_GPS";
+            previousSession.radius = scheduleItem.classroom.radius || 100;
+
+            // Clear finalization state so the reopened session behaves as open
+            // Without this, canOverrideAbsent sees a "finalized" session and may block
+            previousSession.absentsMarkedAt = undefined;
+            previousSession.closedBy = undefined;
+            previousSession.closedAt = undefined;
+
+            attendanceSession = await previousSession.save();
+
+        } else {
+            attendanceSession = await AttendanceSession.create({
+                schedule: scheduleItem._id,
+                teacher: req.user._id,
+                subject: scheduleItem.subject._id,
+                college: req.user.college,
+                classGroup: scheduleItem.classGroup._id,
+                classroom: scheduleItem.classroom._id,
+
+                latitude: Number(teacherLatitude),
+                longitude: Number(teacherLongitude),
+                teacherGpsAccuracy: Number(teacherAccuracy),
+                locationSource: "TEACHER_GPS",
+                radius: scheduleItem.classroom.radius || 100,
+
+                startTime: new Date(),
+                endTime: sessionEndTime,
+                scheduledEndTime: classEndTime || sessionEndTime,
+                status: "ACTIVE",
+                isActive: true
+            });
+        }
+
+        if (previousSession) {
+            socketManager.emitAttendanceReopened(attendanceSession, scheduleItem);
             return res.redirect("/teacher/dashboard?message=live_restarted");
         }
 
+        socketManager.emitAttendanceStarted(attendanceSession, scheduleItem);
         res.redirect("/teacher/dashboard?message=live_started");
 
     } catch (err) {
@@ -935,66 +967,6 @@ router.post("/attendance/manual", isTeacher, async function (req, res) {
     res.redirect("/teacher/manual-attendance");
 });
 
-async function createAbsentRecordsForMissingStudents(session, req) {
-    const students = await Student.find({
-        college: session.college,
-        classGroup: session.classGroup._id ? session.classGroup._id : session.classGroup,
-        isDeleted: { $ne: true }
-    });
-
-    const existingRecords = await AttendanceRecord.find({
-        attendanceSession: session._id
-    });
-
-    const alreadyMarkedStudentIds = [];
-
-    for (let i = 0; i < existingRecords.length; i++) {
-        alreadyMarkedStudentIds.push(existingRecords[i].student.toString());
-    }
-
-    for (let i = 0; i < students.length; i++) {
-        const oneStudent = students[i];
-
-        if (!alreadyMarkedStudentIds.includes(oneStudent._id.toString())) {
-            const absentRecord = await AttendanceRecord.create({
-                student: oneStudent._id,
-                attendanceSession: session._id,
-                subject: session.subject._id ? session.subject._id : session.subject,
-                college: session.college,
-                classGroup: session.classGroup._id ? session.classGroup._id : session.classGroup,
-                classroom: session.classroom._id ? session.classroom._id : session.classroom,
-                status: "ABSENT",
-                latitude: session.latitude || 0,
-                longitude: session.longitude || 0,
-                distanceFromClassroom: 0,
-                verificationMethod: "AUTO_ABSENT",
-                deviceInfo: {
-                    userAgent: req.headers["user-agent"],
-                    ip: req.ip
-                }
-            });
-
-            session.attendanceRecords.push(absentRecord._id);
-
-            session.absentStudents.push({
-                student: oneStudent._id,
-                fullName: oneStudent.fullName,
-                enrollmentNumber: oneStudent.enrollmentNumber,
-                status: "ABSENT",
-                attendanceRecord: absentRecord._id,
-                markedAt: new Date(),
-                verificationMethod: "AUTO_ABSENT",
-                distanceFromClassroom: 0
-            });
-        }
-    }
-
-    session.attendanceSummary.totalPresent = session.presentStudents.length;
-    session.attendanceSummary.totalAbsent = session.absentStudents.length;
-    session.attendanceSummary.totalMarked =
-        session.presentStudents.length + session.absentStudents.length;
-}
-
 router.post("/attendance/end/:id", isTeacher, async (req, res) => {
     try {
         const session = await AttendanceSession.findOne({
@@ -1011,28 +983,23 @@ router.post("/attendance/end/:id", isTeacher, async (req, res) => {
             return res.send("Attendance session not found");
         }
 
-        let shouldAutoMarkAbsents = true;
+        // Only auto-mark absents when the scheduled class time is truly over.
+        // Ending a session early must NOT mark remaining students absent.
+        let shouldAutoMarkAbsents = false;
 
-        if (session.schedule && session.schedule.startTime && session.schedule.endTime) {
-            const timeStatus = getScheduleTimeStatus(
-                session.schedule.startTime,
-                session.schedule.endTime,
-                new Date()
-            );
-
-            /*
-                Important:
-                If teacher ends session while class time is still live,
-                do NOT auto mark missing students absent.
-                This allows teacher to restart session again in same class time.
-            */
-            if (timeStatus === "live") {
-                shouldAutoMarkAbsents = false;
+        if (session.schedule && session.schedule.endTime) {
+            const classEndTime = getScheduleDateTimeForToday(session.schedule.endTime);
+            if (classEndTime && new Date() > classEndTime) {
+                shouldAutoMarkAbsents = true;
             }
         }
 
         if (shouldAutoMarkAbsents) {
-            await createAbsentRecordsForMissingStudents(session, req);
+            await finalizeAbsencesForSession(session, {
+                userAgent: req.headers["user-agent"],
+                ip: req.ip,
+                emit: false
+            });
         }
 
         session.isActive = false;
@@ -1188,7 +1155,7 @@ router.get("/reports", isTeacher, async function (req, res) {
         const studentSummaryMap = {};
 
         attendanceRecords.forEach(function (record) {
-            if (record.status === "PRESENT") {
+            if (teacherIsPositiveAttendanceStatus(record.status)) {
                 totalPresent++;
             }
 
@@ -1212,7 +1179,7 @@ router.get("/reports", isTeacher, async function (req, res) {
 
             subjectSummaryMap[subjectKey].total++;
 
-            if (record.status === "PRESENT") {
+            if (teacherIsPositiveAttendanceStatus(record.status)) {
                 subjectSummaryMap[subjectKey].present++;
             }
 
@@ -1235,7 +1202,7 @@ router.get("/reports", isTeacher, async function (req, res) {
 
             classSummaryMap[classKey].total++;
 
-            if (record.status === "PRESENT") {
+            if (teacherIsPositiveAttendanceStatus(record.status)) {
                 classSummaryMap[classKey].present++;
             }
 
@@ -1259,7 +1226,7 @@ router.get("/reports", isTeacher, async function (req, res) {
 
             studentSummaryMap[studentKey].total++;
 
-            if (record.status === "PRESENT") {
+            if (teacherIsPositiveAttendanceStatus(record.status)) {
                 studentSummaryMap[studentKey].present++;
             }
 
@@ -2015,6 +1982,7 @@ router.post("/manual-attendance/:scheduleId", isTeacher, async function (req, re
                 radius: scheduleItem.classroom.radius || 100,
                 startTime: manualSessionStart,
                 endTime: manualSessionEnd,
+                scheduledEndTime: manualSessionEnd,
                 status: "CLOSED",
                 isActive: false,
                 closedAt: new Date(),
@@ -2095,6 +2063,7 @@ router.post("/manual-attendance/:scheduleId", isTeacher, async function (req, re
         session.isActive = false;
         session.status = "CLOSED";
         session.closedAt = new Date();
+        session.absentsMarkedAt = new Date();
         session.closedBy = req.user._id;
 
         await session.save();

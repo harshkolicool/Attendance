@@ -119,111 +119,74 @@
         return "Please allow location access to start attendance.";
     }
 
-    function getBestTeacherLocationPosition() {
-        return new Promise(function (resolve, reject) {
-            const samples = [];
-            let lastError = null;
-            let finished = false;
-            let watchId = null;
-            let timeoutId = null;
+    function getBestTeacherLocationPosition(onProgress) {
+        // Use AttendifyGeo engine if available (weighted centroid + outlier rejection)
+        if (window.AttendifyGeo && typeof window.AttendifyGeo.getBestPosition === "function") {
+            return window.AttendifyGeo.getBestPosition(onProgress);
+        }
 
-            const targetAccuracyMeters = 20;
-            const acceptableAccuracyMeters = 50;
-            const minimumSamples = 3;
-            const maxWaitMs = 18000;
+        // Fallback: original simple sampler
+        return new Promise(function (resolve, reject) {
+            var samples    = [];
+            var lastError  = null;
+            var finished   = false;
+            var watchId    = null;
+            var timeoutId  = null;
+
+            var targetAccuracyMeters     = 15;
+            var acceptableAccuracyMeters = 40;
+            var minimumSamples           = 4;
+            var maxWaitMs                = 20000;
 
             function cleanup() {
-                if (timeoutId) {
-                    clearTimeout(timeoutId);
-                }
-
-                if (watchId !== null) {
-                    navigator.geolocation.clearWatch(watchId);
-                }
+                if (timeoutId) clearTimeout(timeoutId);
+                if (watchId !== null) navigator.geolocation.clearWatch(watchId);
             }
 
             function getAccuracy(position) {
                 return Number(
-                    position &&
-                    position.coords &&
+                    position && position.coords &&
                     Number.isFinite(Number(position.coords.accuracy))
-                        ? position.coords.accuracy
-                        : 999999
+                        ? position.coords.accuracy : 999999
                 );
             }
 
             function getBestSample() {
-                samples.sort(function (first, second) {
-                    return getAccuracy(first) - getAccuracy(second);
-                });
-
+                samples.sort(function (a, b) { return getAccuracy(a) - getAccuracy(b); });
                 return samples[0];
             }
 
             function finish(error) {
-                if (finished) {
-                    return;
-                }
-
+                if (finished) return;
                 finished = true;
                 cleanup();
-
                 if (samples.length === 0) {
                     reject(error || lastError || new Error("Could not get location."));
                     return;
                 }
-
                 resolve(getBestSample());
             }
 
             function addSample(position) {
-                if (finished || !position || !position.coords) {
-                    return;
-                }
-
+                if (finished || !position || !position.coords) return;
                 samples.push(position);
-
-                const accuracy = getAccuracy(position);
-
-                if (samples.length >= minimumSamples && accuracy <= targetAccuracyMeters) {
-                    finish();
-                    return;
-                }
-
+                var accuracy = getAccuracy(position);
+                if (onProgress && typeof onProgress === "function") onProgress(accuracy, getBestSample());
+                if (samples.length >= minimumSamples && accuracy <= targetAccuracyMeters) { finish(); return; }
                 if (samples.length >= minimumSamples && accuracy <= acceptableAccuracyMeters) {
-                    setTimeout(function () {
-                        if (!finished) {
-                            finish();
-                        }
-                    }, 1200);
+                    setTimeout(function () { if (!finished) finish(); }, 1500);
                 }
             }
 
             function handleError(error) {
                 lastError = error;
-
-                if (error && Number(error.code) === 1) {
-                    finish(error);
-                }
+                if (error && Number(error.code) === 1) finish(error);
             }
 
-            const options = {
-                enableHighAccuracy: true,
-                timeout: 15000,
-                maximumAge: 0
-            };
-
+            var options = { enableHighAccuracy: true, timeout: 18000, maximumAge: 0 };
             navigator.geolocation.getCurrentPosition(addSample, handleError, options);
-
-            try {
-                watchId = navigator.geolocation.watchPosition(addSample, handleError, options);
-            } catch (error) {
-                lastError = error;
-            }
-
-            timeoutId = setTimeout(function () {
-                finish();
-            }, maxWaitMs);
+            try { watchId = navigator.geolocation.watchPosition(addSample, handleError, options); } catch (e) { lastError = e; }
+            timeoutId = setTimeout(function () { finish(); }, maxWaitMs);
         });
     }
 
@@ -255,9 +218,15 @@
 
         form.dataset.locationPending = "true";
 
-        const oldText = setButtonLoading(form, "Getting Best Location...");
+        const oldText = setButtonLoading(form, "Getting Location...");
+        const button = getStartButton(form);
 
-        getBestTeacherLocationPosition()
+        getBestTeacherLocationPosition(function(currentAccuracy, bestSample) {
+            if (button) {
+                const bestAcc = bestSample && bestSample.coords ? Math.round(bestSample.coords.accuracy) : Math.round(currentAccuracy);
+                button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> GPS: ' + bestAcc + 'm';
+            }
+        })
             .then(function (position) {
                 inputs.latitudeInput.value = position.coords.latitude;
                 inputs.longitudeInput.value = position.coords.longitude;
