@@ -6,6 +6,7 @@ const session = require("express-session");
 const { MongoStore } = require("connect-mongo");
 const passport = require("passport");
 const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
 
 const connectDB = require("./config/db");
 require("./config/passport");
@@ -21,7 +22,32 @@ const platformAdminRoutes = require("./routes/platformAdminRoutes");
 
 const app = express();
 
+const mongoose = require("mongoose");
+
+function validateObjectId(req, res, next, id) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+        if (req.method !== 'GET' || req.xhr || (req.headers.accept && req.headers.accept.includes('json'))) {
+            return res.status(400).json({ success: false, message: "Invalid request id." });
+        } else {
+            return res.redirect("back");
+        }
+    }
+    next();
+}
+
+app.param('id', validateObjectId);
+app.param('sessionId', validateObjectId);
+app.param('scheduleId', validateObjectId);
+app.param('classgroupId', validateObjectId);
+app.param('classroomId', validateObjectId);
+app.param('subjectId', validateObjectId);
+app.param('studentId', validateObjectId);
+app.param('teacherId', validateObjectId);
+app.param('requestId', validateObjectId);
+
 const isProduction = process.env.NODE_ENV === "production";
+
+app.disable("x-powered-by");
 
 /*
     Keep this opt-in. When enabled on localhost, Safari can upgrade
@@ -53,7 +79,8 @@ const helmetDirectives = {
     imgSrc: [
         "'self'",
         "data:",
-        "blob:"
+        "blob:",
+        "https:"
     ],
     connectSrc: [
         "'self'",
@@ -104,10 +131,17 @@ if (!process.env.MONGO_URI) {
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
 
-app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
+app.use(express.urlencoded({ extended: true, limit: "1mb" }));
+app.use(express.json({ limit: "1mb" }));
 
 app.use(express.static(path.join(__dirname, "public")));
+
+app.use(rateLimit({
+    windowMs: 60 * 1000,
+    limit: 300,
+    standardHeaders: true,
+    legacyHeaders: false
+}));
 
 const sessionMiddleware = session({
     name: "attendance.sid",
@@ -143,18 +177,59 @@ app.use("/student", studentRoutes);
 app.use("/admin", adminRoutes);
 
 app.use(function (req, res) {
-    res.status(404).send("404 - Page not found");
+    res.status(404).send(
+        '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+        '<title>404 — Page Not Found | Attendify</title>' +
+        '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">' +
+        '<style>' +
+        '*{margin:0;padding:0;box-sizing:border-box}' +
+        'body{min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f0f2f5;color:#1a1a2e}' +
+        '.error-wrap{text-align:center;padding:3rem 2rem;max-width:480px}' +
+        '.error-code{font-size:6rem;font-weight:800;background:linear-gradient(135deg,#667eea,#764ba2);-webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1}' +
+        '.error-title{font-size:1.5rem;font-weight:600;margin:.75rem 0 .5rem}' +
+        '.error-msg{color:#555;margin-bottom:2rem;line-height:1.6}' +
+        '.error-btn{display:inline-flex;align-items:center;gap:.5rem;padding:.75rem 1.75rem;border:none;border-radius:10px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;font-size:.95rem;font-weight:600;text-decoration:none;cursor:pointer;transition:transform .15s,box-shadow .15s}' +
+        '.error-btn:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(102,126,234,.4)}' +
+        '</style></head><body>' +
+        '<div class="error-wrap">' +
+        '<div class="error-code">404</div>' +
+        '<h1 class="error-title">Page Not Found</h1>' +
+        '<p class="error-msg">The page you are looking for does not exist or has been moved.</p>' +
+        '<a href="/" class="error-btn"><i class="fa-solid fa-house"></i> Go Home</a>' +
+        '</div></body></html>'
+    );
 });
 
 app.use(function (err, req, res, next) {
     console.log("SERVER ERROR:", err.message);
     console.log(err.stack);
 
-    if (isProduction) {
-        return res.status(500).send("Something went wrong. Please try again later.");
-    }
+    const statusCode = err.status || 500;
+    const userMessage = isProduction
+        ? "Something went wrong. Please try again later."
+        : err.message;
 
-    res.status(500).send("Server error: " + err.message);
+    res.status(statusCode).send(
+        '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+        '<title>' + statusCode + ' — Server Error | Attendify</title>' +
+        '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">' +
+        '<style>' +
+        '*{margin:0;padding:0;box-sizing:border-box}' +
+        'body{min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f0f2f5;color:#1a1a2e}' +
+        '.error-wrap{text-align:center;padding:3rem 2rem;max-width:480px}' +
+        '.error-code{font-size:6rem;font-weight:800;background:linear-gradient(135deg,#e74c3c,#c0392b);-webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1}' +
+        '.error-title{font-size:1.5rem;font-weight:600;margin:.75rem 0 .5rem}' +
+        '.error-msg{color:#555;margin-bottom:2rem;line-height:1.6;word-break:break-word}' +
+        '.error-btn{display:inline-flex;align-items:center;gap:.5rem;padding:.75rem 1.75rem;border:none;border-radius:10px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;font-size:.95rem;font-weight:600;text-decoration:none;cursor:pointer;transition:transform .15s,box-shadow .15s}' +
+        '.error-btn:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(102,126,234,.4)}' +
+        '</style></head><body>' +
+        '<div class="error-wrap">' +
+        '<div class="error-code">' + statusCode + '</div>' +
+        '<h1 class="error-title">Server Error</h1>' +
+        '<p class="error-msg">' + userMessage + '</p>' +
+        '<a href="/" class="error-btn"><i class="fa-solid fa-house"></i> Go Home</a>' +
+        '</div></body></html>'
+    );
 });
 
 module.exports = app;

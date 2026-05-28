@@ -20,6 +20,16 @@
 <%
     const groups = weeklyScheduleGroups || [];
     const activeMap = activeSessionsBySchedule || {};
+    const todaySessionMap = todaySessionsBySchedule || {};
+    const studentLiveBootstrap = [];
+
+    for (const scheduleKey in activeMap) {
+        if (activeMap[scheduleKey] && activeMap[scheduleKey]._id) {
+            studentLiveBootstrap.push({
+                sessionId: activeMap[scheduleKey]._id.toString()
+            });
+        }
+    }
     const statusMap = attendanceStatusBySchedule || {};
     const scheduleNow = new Date();
     const scheduleNowMinutes = (scheduleNow.getHours() * 60) + scheduleNow.getMinutes();
@@ -116,7 +126,7 @@
                     </div>
 
                     <span class="panel-count">
-                        <%= group.schedules.length %> Classes
+                        <%= group.schedules ? group.schedules.length : 0 %> Classes
                     </span>
                 </div>
 
@@ -130,6 +140,7 @@
                             <%
                                 const scheduleId = item._id.toString();
                                 const activeSession = activeMap[scheduleId];
+                                const todaySession = todaySessionMap[scheduleId];
                                 const attendanceInfo = statusMap[scheduleId];
                                 const isToday = group.offset === 0;
                                 const isLiveWindow = isToday && scheduleIsLiveWindow(item.startTime, item.endTime);
@@ -143,19 +154,56 @@
                                 let cardState = "waiting";
                                 let cardSessionId = "";
 
-                                if (attendanceInfo && attendanceInfo.status === "PRESENT") {
-                                    cardState = "present";
-                                } else if (attendanceInfo && attendanceInfo.status === "ABSENT") {
-                                    cardState = "absent";
-                                } else if (isToday && activeSession) {
-                                    cardState = "live";
-                                    cardSessionId = activeSession._id.toString();
-                                } else if (isLiveWindow) {
-                                    cardState = "ongoing";
-                                } else if (isEndedWithoutAttendance) {
-                                    cardState = "unmarked";
-                                } else if (!isToday) {
-                                    cardState = "upcoming";
+                                let actionResult = null;
+                                if (isToday && typeof attendanceWindow !== "undefined") {
+                                    actionResult = attendanceWindow.getStudentAttendanceAction({
+                                        record: attendanceInfo ? attendanceInfo.record : null,
+                                        session: activeSession || todaySession,
+                                        schedule: item
+                                    });
+                                }
+
+                                if (actionResult) {
+                                    if (actionResult.action === "PRESENT" || actionResult.action === "LATE") {
+                                        cardState = "present";
+                                    } else if (actionResult.canMark) {
+                                        cardState = "live";
+                                        cardSessionId = activeSession ? activeSession._id.toString() : (todaySession ? todaySession._id.toString() : "");
+                                    } else if (actionResult.action === "AUTO_ABSENT_LOCKED" || actionResult.action === "MANUAL_ABSENT") {
+                                        cardState = "absent";
+                                    } else if (todaySession) {
+                                        cardState = "pending";
+                                        cardSessionId = todaySession._id.toString();
+                                    } else if (isLiveWindow) {
+                                        cardState = "ongoing";
+                                    } else if (isEndedWithoutAttendance) {
+                                        cardState = "unmarked";
+                                    }
+                                } else {
+                                    // Fallback or not today
+                                    if (attendanceInfo && (attendanceInfo.status === "PRESENT" || attendanceInfo.status === "LATE")) {
+                                        cardState = "present";
+                                    } else if (attendanceInfo && attendanceInfo.status === "ABSENT") {
+                                        // If session is active, absent students can mark again
+                                        if (isToday && activeSession) {
+                                            cardState = "live";
+                                            cardSessionId = activeSession._id.toString();
+                                        } else {
+                                            cardState = "absent";
+                                        }
+                                    } else if (isToday && activeSession) {
+                                        cardState = "live";
+                                        cardSessionId = activeSession._id.toString();
+                                    } else if (isToday && todaySession) {
+                                        cardState = "pending";
+                                        cardSessionId = todaySession._id.toString();
+                                    } else if (isLiveWindow) {
+                                        cardState = "ongoing";
+                                    } else if (isEndedWithoutAttendance) {
+                                        cardState = "unmarked";
+                                    } else if (!isToday) {
+                                        cardState = "upcoming";
+                                    }
                                 }
                             %>
 
@@ -193,6 +241,11 @@
                                             <i class="fa-solid fa-triangle-exclamation"></i>
                                             Unmarked
                                         </span>
+                                    <% } else if (cardState === "pending") { %>
+                                        <span class="status-badge pending">
+                                            <i class="fa-solid fa-hourglass-half"></i>
+                                            Pending
+                                        </span>
                                     <% } else if (cardState === "upcoming") { %>
                                         <span class="status-badge waiting">
                                             <i class="fa-solid fa-calendar-day"></i>
@@ -225,29 +278,54 @@
                                 </div>
 
                                 <div class="js-schedule-action class-action">
-                                    <% if (cardState === "live") { %>
-                                        <button
-                                            class="view-btn live js-mark-attendance-btn"
-                                            type="button"
-                                            data-session-id="<%= activeSession._id %>"
-                                        >
-                                            Mark Attendance
-                                        </button>
-                                    <% } else if (cardState === "ongoing") { %>
-                                        <button class="view-btn" type="button" disabled>
-                                            Teacher Not Started
-                                        </button>
-                                    <% } else if (cardState === "present") { %>
-                                        <button class="view-btn marked" type="button" disabled>
-                                            Attendance Marked
-                                        </button>
-                                    <% } else if (cardState === "absent") { %>
-                                        <button class="view-btn marked absent" type="button" disabled>
-                                            Marked Absent
-                                        </button>
+                                    <% if (actionResult) { %>
+                                        <% if (actionResult.canMark) { %>
+                                            <button
+                                                class="view-btn live js-mark-attendance-btn"
+                                                type="button"
+                                                data-session-id="<%= cardSessionId %>"
+                                            >
+                                                <%= actionResult.label %>
+                                            </button>
+                                        <% } else { %>
+                                            <% 
+                                                let btnClass = "view-btn";
+                                                if (cardState === "present" || cardState === "absent") btnClass += " marked " + cardState;
+                                                else if (cardState === "unmarked") btnClass += " unmarked";
+                                                else if (cardState === "pending") btnClass += " pending";
+                                            %>
+                                            <button class="<%= btnClass %>" type="button" disabled>
+                                                <%= actionResult.label %>
+                                            </button>
+                                        <% } %>
+                                    <% } else { %>
+                                        <% if (cardState === "live") { %>
+                                            <button
+                                                class="view-btn live js-mark-attendance-btn"
+                                                type="button"
+                                                data-session-id="<%= cardSessionId %>"
+                                            >
+                                                Mark Attendance
+                                            </button>
+                                        <% } else if (cardState === "ongoing") { %>
+                                            <button class="view-btn" type="button" disabled>
+                                                Teacher Not Started
+                                            </button>
+                                        <% } else if (cardState === "present") { %>
+                                            <button class="view-btn marked" type="button" disabled>
+                                                Attendance Marked
+                                            </button>
+                                        <% } else if (cardState === "absent") { %>
+                                            <button class="view-btn marked absent" type="button" disabled>
+                                                Marked Absent
+                                            </button>
                                     <% } else if (cardState === "unmarked") { %>
                                         <button class="view-btn unmarked" type="button" disabled>
                                             Unmarked
+                                        </button>
+                                    <% } else if (cardState === "pending") { %>
+                                        <button class="view-btn pending" type="button" disabled>
+                                            Pending
                                         </button>
                                     <% } else if (cardState === "upcoming") { %>
                                         <button class="view-btn" type="button" disabled>
@@ -314,11 +392,15 @@
     </aside>
 </div>
 
+<script type="application/json" id="studentLiveSessionBootstrap"><%- JSON.stringify(studentLiveBootstrap).replace(/</g, "\\u003c") %></script>
+
 <script src="/socket.io/socket.io.js"></script>
 <script src="https://unpkg.com/@simplewebauthn/browser/dist/bundle/index.umd.min.js"></script>
 <script src="/js/studentPasskey.js"></script>
+<script src="/js/geoAccuracy.js"></script>
 <script src="/js/studentLocation.js"></script>
 <script src="/js/studentRealtime.js"></script>
+<script src="/js/studentLiveLocation.js"></script>
 <script src="/js/studentScheduleFocusToday.js"></script>
 <script src="/js/uiShell.js"></script>
 </body>

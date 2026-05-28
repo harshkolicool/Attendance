@@ -26,6 +26,20 @@ const classroomSchema = new mongoose.Schema({
         max: 10000
     },
 
+    latitude: {
+        type: Number,
+        default: 0,
+        min: -90,
+        max: 90
+    },
+
+    longitude: {
+        type: Number,
+        default: 0,
+        min: -180,
+        max: 180
+    },
+
     college: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "College",

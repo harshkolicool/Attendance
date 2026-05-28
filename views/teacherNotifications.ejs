@@ -74,80 +74,48 @@
 
                     <% notifications.forEach(function(notification) { %>
 
-                        <article class="teacher-notification-item <%= notification.isRead ? 'is-read' : 'is-unread' %>">
-
-                            <div class="teacher-notification-icon">
-                                <% if (notification.category === "SCHEDULE") { %>
-                                    <i class="fa-solid fa-calendar-days"></i>
-                                <% } else if (notification.category === "ATTENDANCE") { %>
-                                    <i class="fa-solid fa-clipboard-check"></i>
-                                <% } else if (notification.category === "PASSKEY_SETUP") { %>
-                                    <i class="fa-solid fa-fingerprint"></i>
-                                <% } else if (notification.level === "error" || notification.level === "danger") { %>
-                                    <i class="fa-solid fa-triangle-exclamation"></i>
-                                <% } else { %>
-                                    <i class="fa-solid fa-bell"></i>
-                                <% } %>
+                        <article class="notification-card <%= notification.isRead ? 'read' : 'unread' %>">
+                            <div class="notification-top">
+                                <h4><%= notification.title || "Notification" %></h4>
+                                <span>
+                                    <%= notification.createdAt ? new Date(notification.createdAt).toLocaleString("en-IN") : "" %>
+                                </span>
                             </div>
 
-                            <div class="teacher-notification-content">
+                            <p><%= notification.message || "" %></p>
 
-                                <div class="teacher-notification-title-row">
-                                    <div>
-                                        <h3><%= notification.title || "Notification" %></h3>
+                            <div class="notification-meta">
+                                <span class="admin-badge">
+                                    <%= notification.category || "GENERAL" %>
+                                </span>
 
-                                        <span class="teacher-notification-category">
-                                            <%= notification.category || "Notification" %>
-                                        </span>
-                                    </div>
+                                <% if (notification.link) { %>
+                                    <a class="view-btn notification-open-link" href="<%= notification.link %>">
+                                        <i class="fa-solid fa-arrow-up-right-from-square"></i>
+                                        Open
+                                    </a>
+                                <% } %>
 
-                                    <time>
-                                        <%= notification.createdAt ? new Date(notification.createdAt).toLocaleString("en-IN") : "" %>
-                                    </time>
-                                </div>
-
-                                <p class="teacher-notification-message">
-                                    <%= notification.message || "" %>
-                                </p>
-
-                                <div class="teacher-notification-actions">
-
-                                    <% if (notification.link) { %>
-                                        <a class="teacher-notification-action open" href="<%= notification.link %>">
-                                            <i class="fa-solid fa-arrow-up-right-from-square"></i>
-                                            Open
-                                        </a>
-                                    <% } %>
-
-                                    <% if (!notification.isRead) { %>
-                                        <form action="/teacher/notifications/<%= notification._id %>/read" method="POST">
-                                            <button class="teacher-notification-action read" type="submit">
-                                                <i class="fa-solid fa-check"></i>
-                                                Mark Read
-                                            </button>
-                                        </form>
-                                    <% } else { %>
-                                        <span class="teacher-notification-read-label">
-                                            <i class="fa-solid fa-circle-check"></i>
-                                            Read
-                                        </span>
-                                    <% } %>
-
-                                    <form
-                                        action="/teacher/notifications/<%= notification._id %>/delete"
-                                        method="POST"
-                                        onsubmit="return confirm('Delete this notification?')"
-                                    >
-                                        <button class="teacher-notification-action delete" type="submit">
-                                            <i class="fa-solid fa-trash"></i>
-                                            Delete
+                                <% if (!notification.isRead) { %>
+                                    <form action="/teacher/notifications/<%= notification._id %>/read" method="POST">
+                                        <button class="view-btn live notification-action-btn" type="submit">
+                                            <i class="fa-solid fa-check"></i>
+                                            Mark Read
                                         </button>
                                     </form>
+                                <% } %>
 
-                                </div>
-
+                                <form
+                                    action="/teacher/notifications/<%= notification._id %>/delete"
+                                    method="POST"
+                                    onsubmit="return confirm('Delete this notification?')"
+                                >
+                                    <button class="view-btn marked absent notification-delete-btn notification-action-btn" type="submit">
+                                        <i class="fa-solid fa-trash"></i>
+                                        Delete
+                                    </button>
+                                </form>
                             </div>
-
                         </article>
 
                     <% }) %>

@@ -97,6 +97,16 @@ const attendanceAttemptSchema = new mongoose.Schema({
         default: 100
     },
 
+    effectiveRadius: {
+        type: Number,
+        default: 0
+    },
+
+    teacherAccuracy: {
+        type: Number,
+        default: 0
+    },
+
     passkeyCredentialId: String,
     browserFingerprint: String,
     userAgent: String,

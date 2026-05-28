@@ -20,7 +20,7 @@ const studentAttendanceSnapshotSchema = new mongoose.Schema(
 
         status: {
             type: String,
-            enum: ["PRESENT", "ABSENT"],
+            enum: ["PRESENT", "PENDING", "LATE", "ABSENT"],
             required: true
         },
 
@@ -49,6 +49,49 @@ const studentAttendanceSnapshotSchema = new mongoose.Schema(
         distanceFromClassroom: {
             type: Number,
             default: 0
+        }
+    },
+    {
+        _id: false
+    }
+);
+
+const liveDeviceSnapshotSchema = new mongoose.Schema(
+    {
+        student: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Student",
+            required: true
+        },
+
+        studentName: {
+            type: String,
+            default: "Student"
+        },
+
+        deviceId: {
+            type: String,
+            required: true
+        },
+
+        deviceLabel: {
+            type: String,
+            default: "Device"
+        },
+
+        latitude: Number,
+        longitude: Number,
+        accuracy: Number,
+        distance: Number,
+        inside: Boolean,
+        online: {
+            type: Boolean,
+            default: true
+        },
+
+        lastActiveAt: {
+            type: Date,
+            default: Date.now
         }
     },
     {
@@ -128,6 +171,10 @@ const attendanceSessionSchema = new mongoose.Schema({
         required: true
     },
 
+    scheduledEndTime: {
+        type: Date
+    },
+
     status: {
         type: String,
         enum: ["ACTIVE", "CLOSED", "EXPIRED", "CANCELLED"],
@@ -167,6 +214,8 @@ const attendanceSessionSchema = new mongoose.Schema({
 
     absentStudents: [studentAttendanceSnapshotSchema],
 
+    liveDevices: [liveDeviceSnapshotSchema],
+
     attendanceSummary: {
         totalPresent: {
             type: Number,
@@ -182,6 +231,15 @@ const attendanceSessionSchema = new mongoose.Schema({
             type: Number,
             default: 0
         }
+    },
+
+    effectiveEndTime: {
+        type: Date
+    },
+
+    wasReopenedAfterExtension: {
+        type: Boolean,
+        default: false
     }
 
 }, {
@@ -200,6 +258,24 @@ attendanceSessionSchema.index({
     schedule: 1,
     teacher: 1,
     startTime: 1
+});
+
+attendanceSessionSchema.index({
+    isActive: 1,
+    status: 1,
+    endTime: 1
+});
+
+attendanceSessionSchema.index({
+    college: 1,
+    schedule: 1,
+    startTime: 1,
+    absentsMarkedAt: 1
+});
+
+attendanceSessionSchema.index({
+    "liveDevices.student": 1,
+    "liveDevices.deviceId": 1
 });
 
 const AttendanceSession = mongoose.models.AttendanceSession || mongoose.model(

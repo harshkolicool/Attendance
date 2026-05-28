@@ -12,6 +12,11 @@
 
     <link
         rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css"
+    >
+
+    <link
+        rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
     >
 </head>
@@ -323,37 +328,49 @@
                             <div class="teacher-schedule-filter-field">
                                 <label for="teacherScheduleGroupFilter">Class Group</label>
 
-                                <select id="teacherScheduleGroupFilter" data-teacher-schedule-filter="group">
-                                    <option value="">All Class Groups</option>
+                                <div class="select-shell">
+                                    <i class="fa-solid fa-users select-shell-icon"></i>
+                                    <select id="teacherScheduleGroupFilter" data-teacher-schedule-filter="group">
+                                        <option value="">All Class Groups</option>
 
-                                    <% scheduleGroupOptions.forEach(function(option) { %>
-                                        <option value="<%= option.value %>"><%= option.label %></option>
-                                    <% }) %>
-                                </select>
+                                        <% scheduleGroupOptions.forEach(function(option) { %>
+                                            <option value="<%= option.value %>"><%= option.label %></option>
+                                        <% }) %>
+                                    </select>
+                                    <i class="fa-solid fa-chevron-down select-shell-chevron"></i>
+                                </div>
                             </div>
 
                             <div class="teacher-schedule-filter-field">
                                 <label for="teacherScheduleRoomFilter">Classroom</label>
 
-                                <select id="teacherScheduleRoomFilter" data-teacher-schedule-filter="room">
-                                    <option value="">All Classrooms</option>
+                                <div class="select-shell">
+                                    <i class="fa-solid fa-door-open select-shell-icon"></i>
+                                    <select id="teacherScheduleRoomFilter" data-teacher-schedule-filter="room">
+                                        <option value="">All Classrooms</option>
 
-                                    <% scheduleRoomOptions.forEach(function(option) { %>
-                                        <option value="<%= option.value %>"><%= option.label %></option>
-                                    <% }) %>
-                                </select>
+                                        <% scheduleRoomOptions.forEach(function(option) { %>
+                                            <option value="<%= option.value %>"><%= option.label %></option>
+                                        <% }) %>
+                                    </select>
+                                    <i class="fa-solid fa-chevron-down select-shell-chevron"></i>
+                                </div>
                             </div>
 
                             <div class="teacher-schedule-filter-field">
                                 <label for="teacherScheduleStateFilter">State</label>
 
-                                <select id="teacherScheduleStateFilter" data-teacher-schedule-filter="state">
-                                    <option value="">All States</option>
+                                <div class="select-shell">
+                                    <i class="fa-solid fa-filter select-shell-icon"></i>
+                                    <select id="teacherScheduleStateFilter" data-teacher-schedule-filter="state">
+                                        <option value="">All States</option>
 
-                                    <% scheduleStateOptions.forEach(function(option) { %>
-                                        <option value="<%= option.value %>"><%= option.label %></option>
-                                    <% }) %>
-                                </select>
+                                        <% scheduleStateOptions.forEach(function(option) { %>
+                                            <option value="<%= option.value %>"><%= option.label %></option>
+                                        <% }) %>
+                                    </select>
+                                    <i class="fa-solid fa-chevron-down select-shell-chevron"></i>
+                                </div>
                             </div>
 
                             <div class="teacher-schedule-filter-field teacher-schedule-filter-action">
@@ -593,7 +610,7 @@
                                 <% } %>
                             </div>
 
-                            <span class="live-badge">LIVE</span>
+                            <span class="live-badge"><span>LIV</span><span>E</span></span>
                         </div>
 
                         <div class="live-meta">
@@ -634,7 +651,7 @@
 
                         <form action="/teacher/attendance/end/<%= session._id %>" method="POST">
                             <button class="end-btn" type="submit">
-                                <i class="fa-solid fa-stop"></i>
+                                <i class="fa-solid fa-square"></i>
                                 End Session
                             </button>
                         </form>
@@ -680,6 +697,81 @@
             </div>
 
             <ul class="suspicious-attempt-list" id="suspiciousAttemptList"></ul>
+        </section>
+
+        <%
+            const liveMapBootstrap = (activeSessions || []).map(function (session) {
+                return {
+                    sessionId: session._id.toString(),
+                    subjectName: session.subject ? session.subject.subjectName : "Subject",
+                    classGroupName: session.classGroup ? session.classGroup.name : "Class",
+                    latitude: Number(session.latitude || 0),
+                    longitude: Number(session.longitude || 0),
+                    radius: Number(session.radius || 0)
+                };
+            });
+        %>
+
+        <section class="teacher-map-card" aria-label="Realtime student location map">
+            <div class="teacher-map-head">
+                <div>
+                    <h3 class="teacher-map-title">
+                        <i class="fa-solid fa-map-location-dot"></i>
+                        Live Student Map
+                    </h3>
+                    <p class="teacher-map-subtitle">
+                        Real-time GPS from logged-in students with location enabled. Distance and accuracy are verified.
+                    </p>
+                </div>
+
+                <div class="teacher-map-stats">
+                    <span class="teacher-map-pill neutral" id="teacherMapTrackingPill">0 live</span>
+                    <span class="teacher-map-pill" id="teacherMapInsidePill" style="background:#dcfce7; color:#16a34a; border: 1px solid #bbf7d0;">0 inside</span>
+                    <span class="teacher-map-pill" id="teacherMapNearPill" style="background:#fef3c7; color:#d97706; border: 1px solid #fde68a;">0 near</span>
+                    <span class="teacher-map-pill ghost" id="teacherMapOutsidePill" style="background:#e0e7ff; color:#4f46e5; border: 1px solid #c7d2fe;">0 outside</span>
+                    <span class="teacher-map-pill" id="teacherMapPoorPill" style="background:#f1f5f9; color:#64748b; border: 1px solid #e2e8f0;">0 poor GPS</span>
+                </div>
+            </div>
+
+            <div class="teacher-map-toolbar">
+                <label class="teacher-map-select-label" for="teacherMapSessionSelect">Session</label>
+                <div class="select-shell">
+                    <i class="fa-solid fa-calendar-check select-shell-icon"></i>
+                    <select id="teacherMapSessionSelect" class="teacher-map-select" aria-label="Select live session"></select>
+                    <i class="fa-solid fa-chevron-down select-shell-chevron"></i>
+                </div>
+            </div>
+
+            <div class="teacher-map-layout">
+                <div class="teacher-map-wrapper">
+                    <div id="teacherMapOverlay" class="teacher-map-overlay">
+                        <div class="teacher-map-overlay-inner">
+                            <i class="fa-solid fa-map-location-dot" style="font-size: 2rem; color: #2563eb; margin-bottom: 10px;"></i>
+                            <strong>Map preview is ready.</strong>
+                            <span>Start attendance to begin live tracking.</span>
+                        </div>
+                    </div>
+                    <div class="teacher-map" id="teacherLiveMap"></div>
+                </div>
+                <div class="teacher-map-roster-wrap">
+                    <div class="teacher-map-roster-header">
+                        <h4 class="teacher-map-roster-title">Student devices</h4>
+                        <div class="teacher-search-box">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <input id="teacherMapSearch" type="text" placeholder="Search students...">
+                        </div>
+                    </div>
+                    <div class="teacher-map-roster" id="teacherMapRoster">
+                        <div class="teacher-map-roster-empty">Waiting for students with location enabled…</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="teacher-map-footer" id="teacherMapFooter">
+                <span class="teacher-map-hint" id="teacherMapHint">
+                    Start a live session to see the radius and student markers.
+                </span>
+            </div>
         </section>
 
     </main>
@@ -734,11 +826,16 @@
 
 </div>
 
+<script type="application/json" id="teacherLiveMapBootstrap"><%- JSON.stringify(liveMapBootstrap).replace(/</g, "\\u003c") %></script>
+
+<script src="/js/geoAccuracy.js"></script>
 <script src="/js/teacherLocation.js"></script>
 <script src="/socket.io/socket.io.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="/js/teacherRealtime.js"></script>
 <script src="/js/teacherNav.js"></script>
 <script src="/js/teacherPanels.js"></script>
+<script src="/js/teacherLiveMap.js" defer></script>
 <script src="/js/uiShell.js"></script>
 </body>
 </html>

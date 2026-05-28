@@ -110,6 +110,12 @@ document.addEventListener("DOMContentLoaded", function () {
             button.className += " marked";
         } else if (variant === "absent") {
             button.className += " marked absent";
+        } else if (variant === "pending") {
+            button.className += " pending";
+        } else if (variant === "late") {
+            button.className += " late";
+        } else if (variant === "unmarked") {
+            button.className += " unmarked";
         }
 
         button.type = "button";
@@ -209,6 +215,7 @@ document.addEventListener("DOMContentLoaded", function () {
         actionBox.appendChild(createDisabledButton("Attendance Marked", "marked"));
     }
 
+
     function setOngoingUI(card) {
         const actionBox = getActionBox(card);
 
@@ -218,7 +225,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
         const currentState = card.getAttribute("data-attendance-state");
 
-        if (currentState === "present" || currentState === "absent" || currentState === "live") {
+        // Only PRESENT is truly final — all other states can transition
+        if (currentState === "present" || currentState === "live") {
             return;
         }
 
@@ -267,7 +275,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
         const currentState = card.getAttribute("data-attendance-state");
 
-        if (currentState === "present" || currentState === "absent" || currentState === "live") {
+        // Only PRESENT and active live states are truly final
+        if (currentState === "present" || currentState === "live") {
             return;
         }
 
@@ -288,7 +297,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
         const currentState = card.getAttribute("data-attendance-state");
 
-        if (currentState === "present" || currentState === "absent" || currentState === "live") {
+        // Only PRESENT is truly final
+        if (currentState === "present" || currentState === "live") {
             return;
         }
 
@@ -300,13 +310,39 @@ document.addEventListener("DOMContentLoaded", function () {
         actionBox.appendChild(createDisabledButton("Unmarked", "unmarked"));
     }
 
+    function setPendingUI(card) {
+        const actionBox = getActionBox(card);
+
+        if (!actionBox || !card) {
+            return;
+        }
+
+        const currentState = card.getAttribute("data-attendance-state");
+
+        // Only PRESENT is truly final
+        if (currentState === "present") {
+            return;
+        }
+
+        card.setAttribute("data-attendance-state", "pending");
+        card.setAttribute("data-session-id", "");
+        setTopStatusBadge(card, "pending", "fa-solid fa-hourglass-half", "Pending");
+
+        actionBox.textContent = "";
+        actionBox.appendChild(createDisabledButton("Pending", "pending"));
+    }
+
     function syncOngoingCardsByClock() {
         const cards = document.querySelectorAll("[data-schedule-id]");
 
         cards.forEach(function (card) {
             const currentState = card.getAttribute("data-attendance-state");
 
-            if (currentState === "present" || currentState === "absent" || currentState === "live") {
+            if (
+                currentState === "present" ||
+                currentState === "live" ||
+                currentState === "pending"
+            ) {
                 return;
             }
 
@@ -331,9 +367,12 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
         }
 
+        // Note: We do NOT guard against currentState === "absent" here because
+        // the card may need to be set to absent after being in another state.
+        // The guard for present stays — once present, never go back to absent.
         const currentState = card.getAttribute("data-attendance-state");
 
-        if (currentState === "present" || currentState === "absent") {
+        if (currentState === "present") {
             return;
         }
 
@@ -360,14 +399,47 @@ document.addEventListener("DOMContentLoaded", function () {
 
         const currentState = card.getAttribute("data-attendance-state");
 
-        if (currentState === "present" || currentState === "absent") {
+        // Student already marked PRESENT — never override
+        if (currentState === "present") {
+            return;
+        }
+
+        // Student is ABSENT: teacher starting/reopening attendance means they can mark again
+        // Always allow this transition — the server controls eligibility
+        setLiveUI(card, payload.sessionId);
+
+        if (payload.isReopen) {
+            showRealtimeMessage(
+                "Attendance reopened for " + (payload.subjectName || "this subject") + ". You can mark attendance now!",
+                "success"
+            );
+        } else {
+            showRealtimeMessage(
+                "Attendance started for " + (payload.subjectName || "this subject") + ". You can mark now.",
+                "success"
+            );
+        }
+    });
+
+    // Dedicated reopen event — always enables marking for non-present students
+    socket.on("attendance:reopened", function (payload) {
+        const card = getScheduleCard(payload.scheduleId);
+
+        if (!card) {
+            return;
+        }
+
+        const currentState = card.getAttribute("data-attendance-state");
+
+        // Only PRESENT stays as-is; everyone else (absent, waiting, etc.) gets the button
+        if (currentState === "present") {
             return;
         }
 
         setLiveUI(card, payload.sessionId);
 
         showRealtimeMessage(
-            "Attendance started for " + (payload.subjectName || "this subject") + ". You can mark now.",
+            "Attendance reopened. You can now mark attendance!",
             "success"
         );
     });
@@ -381,9 +453,20 @@ document.addEventListener("DOMContentLoaded", function () {
 
         const currentState = card.getAttribute("data-attendance-state");
 
-        if (currentState === "live" || currentState === "ongoing" || currentState === "waiting") {
+        if (payload.absencesFinalized === true) {
             setAbsentUI(card);
-            showRealtimeMessage("Attendance session ended.", "error");
+            showRealtimeMessage("Attendance finalized. Missing students were marked absent.", "error");
+            return;
+        }
+
+        if (
+            currentState === "live" ||
+            currentState === "ongoing" ||
+            currentState === "waiting" ||
+            currentState === "pending"
+        ) {
+            setPendingUI(card);
+            showRealtimeMessage("Attendance session closed. Your status stays pending until class ends.", "success");
         }
     });
 
@@ -394,7 +477,54 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
         }
 
+        // Always show PRESENT — LATE is not used in this attendance flow
         setPresentUI(card);
+        showRealtimeMessage("Attendance marked successfully!", "success");
+
+        // On the history page (not the dashboard), reload so table updates
+        if (window.location.pathname.indexOf("/attendance-history") !== -1) {
+            setTimeout(function () {
+                window.location.reload();
+            }, 2000);
+        }
+    });
+
+    // Fired when AUTO_ABSENT is overridden to PRESENT
+    socket.on("attendance:record-updated", function (payload) {
+        if (!payload || payload.newStatus !== "PRESENT") {
+            return;
+        }
+
+        // Update the schedule card to show "present"
+        var card = getScheduleCard(payload.scheduleId);
+        if (card) {
+            setPresentUI(card);
+        }
+
+        // Update sidebar absent/present counters if they exist on the page
+        // Use parseInt to strip " Classes" suffix safely
+        var absentBadge = document.querySelector(".js-absent-count-today");
+        if (absentBadge) {
+            var current = parseInt(absentBadge.textContent, 10) || 0;
+            if (current > 0) {
+                absentBadge.textContent = (current - 1) + " Classes";
+            }
+        }
+
+        var presentBadge = document.querySelector(".js-present-count-today");
+        if (presentBadge) {
+            var p = parseInt(presentBadge.textContent, 10) || 0;
+            presentBadge.textContent = (p + 1) + " Classes";
+        }
+
+        showRealtimeMessage("Great! Your attendance has been marked present.", "success");
+
+        // On history page, reload to refresh table
+        if (window.location.pathname.indexOf("/attendance-history") !== -1) {
+            setTimeout(function () {
+                window.location.reload();
+            }, 2000);
+        }
     });
 
     syncOngoingCardsByClock();
