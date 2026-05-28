@@ -5,7 +5,11 @@ const Teacher = require("../models/teacherSchema");
 const PlatformAdmin = require("../models/platformAdminSchema");
 const AttendanceSession = require("../models/attendanceSessionSchema");
 const liveLocationStore = require("./liveLocationStore");
-const { evaluateLocationRange } = require("./locationVerification");
+const {
+    evaluateLocationRange,
+    computeVerificationRadius
+} = require("./locationVerification");
+const gpsPeerCalibration = require("./gpsPeerCalibration");
 
 const LOCATION_PERSIST_INTERVAL_MS = 10000;
 const locationPersistedAt = new Map();
@@ -141,6 +145,7 @@ function mapPersistedLiveDevice(device, sessionId) {
         sessionId: String(sessionId),
         studentId: studentId,
         studentName: device.studentName || "Student",
+        enrollmentNumber: device.enrollmentNumber || "",
         deviceId: device.deviceId || "default",
         deviceLabel: device.deviceLabel || "Device",
         latitude: Number(device.latitude),
@@ -150,7 +155,12 @@ function mapPersistedLiveDevice(device, sessionId) {
                 ? null
                 : Number(device.accuracy),
         distance: Number(device.distance || 0),
+        configuredRadius: Number(device.configuredRadius || 0),
+        effectiveRadius: Number(device.effectiveRadius || 0),
+        uncertaintyAllowance: Number(device.uncertaintyAllowance || 0),
         inside: Boolean(device.inside),
+        status: device.status || "UNKNOWN",
+        reasonCode: device.reasonCode || "",
         updatedAt: device.lastActiveAt || new Date(),
         online: Boolean(device.online)
     };
@@ -193,6 +203,7 @@ async function persistLiveDeviceLocation(payload) {
     const deviceDoc = {
         student: payload.studentId,
         studentName: payload.studentName || "Student",
+        enrollmentNumber: payload.enrollmentNumber || "",
         deviceId: payload.deviceId || "default",
         deviceLabel: payload.deviceLabel || "Device",
         latitude: Number(payload.latitude),
@@ -202,7 +213,12 @@ async function persistLiveDeviceLocation(payload) {
                 ? null
                 : Number(payload.accuracy),
         distance: Number(payload.distance || 0),
+        configuredRadius: Number(payload.configuredRadius || 0),
+        effectiveRadius: Number(payload.effectiveRadius || 0),
+        uncertaintyAllowance: Number(payload.uncertaintyAllowance || 0),
         inside: Boolean(payload.inside),
+        status: payload.status || "UNKNOWN",
+        reasonCode: payload.reasonCode || "",
         online: payload.online !== false,
         lastActiveAt: payload.updatedAt || new Date()
     };
@@ -493,12 +509,23 @@ function initializeSocket(io) {
                 const memorySnapshot = liveLocationStore.getSnapshot(session._id);
                 const persistedSnapshot = getPersistedLocationSnapshot(session);
 
+                const sessionRadius = Number(session.radius || 0);
+                const teacherGpsAccuracy = Number(session.teacherGpsAccuracy || 0);
+                const radiusPreview = computeVerificationRadius(
+                    sessionRadius,
+                    0,
+                    teacherGpsAccuracy
+                );
+
                 socket.join(getSessionRoom(session._id));
                 socket.emit("teacher:watch-session:ok", {
                     sessionId: session._id.toString(),
                     latitude: Number(session.latitude || 0),
                     longitude: Number(session.longitude || 0),
-                    radius: Number(session.radius || 0),
+                    radius: sessionRadius,
+                    configuredRadius: radiusPreview.adminConfiguredRadius,
+                    effectiveRadius: radiusPreview.verificationRadius,
+                    combinedAccuracy: radiusPreview.combinedAccuracy,
                     endTime: session.endTime,
                     classGroupName: session.classGroup ? session.classGroup.name || "" : "",
                     roster: roster.map(function (student) {
@@ -643,19 +670,55 @@ function initializeSocket(io) {
                     return;
                 }
 
-                const evaluation = evaluateLocationRange(
+                const peerSnapshot = liveLocationStore.getSnapshot(session._id);
+
+                const locationMeta = payload && payload.locationMeta ? payload.locationMeta : null;
+
+                function evaluateAtCoordinates(checkLat, checkLon) {
+                    return evaluateLocationRange(
+                        centerLat,
+                        centerLon,
+                        checkLat,
+                        checkLon,
+                        radius,
+                        accuracy,
+                        teacherGpsAccuracy,
+                        {
+                            studentLocationMeta: locationMeta,
+                            teacherLocationMeta: session.locationMeta || null,
+                            logContext: "socket-live-location"
+                        }
+                    );
+                }
+
+                let evaluation = evaluateAtCoordinates(latitude, longitude);
+
+                const calibrated = gpsPeerCalibration.applyPeerCalibration(
+                    evaluation,
                     centerLat,
                     centerLon,
                     latitude,
                     longitude,
                     radius,
                     accuracy,
-                    teacherGpsAccuracy
+                    teacherGpsAccuracy,
+                    peerSnapshot,
+                    socket.data.studentId,
+                    function (snapLat, snapLon) {
+                        return evaluateAtCoordinates(snapLat, snapLon);
+                    }
                 );
-                
+
+                evaluation = calibrated.evaluation;
+
+                const displayLat = calibrated.displayLatitude;
+                const displayLon = calibrated.displayLongitude;
                 const distance = evaluation.measuredDistance;
                 const inside = !evaluation.isOutside;
-                const studentStatus = evaluation.status;     // INSIDE | NEAR | OUTSIDE | POOR_ACCURACY
+                const studentStatus =
+                    evaluation.isAccuracyPoor && !evaluation.isOutside
+                        ? "POOR_ACCURACY"
+                        : evaluation.status;
 
                 const eventPayload = {
                     sessionId: session._id.toString(),
@@ -664,8 +727,11 @@ function initializeSocket(io) {
                     enrollmentNumber: socket.data.enrollmentNumber || "",
                     deviceId: deviceId || "default",
                     deviceLabel: deviceLabel || "Device",
-                    latitude: latitude,
-                    longitude: longitude,
+                    latitude: displayLat,
+                    longitude: displayLon,
+                    rawLatitude: calibrated.rawLatitude,
+                    rawLongitude: calibrated.rawLongitude,
+                    gpsCorrected: Boolean(calibrated.adjusted),
                     accuracy: isFiniteNumber(accuracy) ? accuracy : null,
                     distance: Math.round(distance),
                     distanceLabel: evaluation.distanceLabel || "",
@@ -749,6 +815,12 @@ function emitAttendanceStarted(session, scheduleItem) {
         endTime: session.endTime,
         scheduledEndTime: session.scheduledEndTime || null,
         radius: session.radius,
+        configuredRadius: Number(session.radius || 0),
+        effectiveRadius: computeVerificationRadius(
+            session.radius,
+            0,
+            session.teacherGpsAccuracy || 0
+        ).verificationRadius,
         isReopen: Boolean(session.__isReopen)
     };
 
@@ -794,18 +866,20 @@ function emitAttendanceReopened(session, scheduleItem) {
 
     // Emit both the dedicated reopen event AND the started event so all listeners catch it
     io.to(getClassGroupRoom(classGroupId)).emit("attendance:reopened", payload);
-    io.to(getClassGroupRoom(classGroupId)).emit("attendance:started", Object.assign({}, payload, {
+    const teacherPayload = Object.assign({}, payload, {
         latitude: Number(session.latitude || 0),
         longitude: Number(session.longitude || 0),
         teacherGpsAccuracy: Number(session.teacherGpsAccuracy || 0),
         startTime: session.startTime,
         endTime: session.endTime,
         radius: session.radius
-    }));
+    });
+
+    io.to(getClassGroupRoom(classGroupId)).emit("attendance:started", teacherPayload);
 
     const teacherId = getId(session.teacher || scheduleItem.teacher);
     if (teacherId) {
-        io.to(getTeacherRoom(teacherId)).emit("attendance:started:teacher", payload);
+        io.to(getTeacherRoom(teacherId)).emit("attendance:started:teacher", teacherPayload);
     }
 
     const collegeId = getId(session.college);

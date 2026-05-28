@@ -502,6 +502,76 @@
             return;
         }
 
+        const config = window.AttendifyRealtimeConfig || { mode: "socket", pollIntervalMs: 5000 };
+
+        if (config.mode === "disabled") {
+            console.log("Realtime disabled by configuration.");
+            return;
+        }
+
+        let reloadPending = false;
+        
+        function queueReload(message) {
+            if (reloadPending || !shouldAutoReloadForUpdate(role)) {
+                return;
+            }
+
+            reloadPending = true;
+            showRealtimeToast(message || "New update received. Refreshing...", "success");
+
+            setTimeout(function () {
+                window.location.reload();
+            }, 900);
+        }
+
+        if (config.mode === "polling") {
+            console.log("Realtime using polling fallback.");
+            
+            // Do initial unread count fetch immediately
+            const unreadCountApi = getUnreadCountApiPath(role);
+            if (unreadCountApi) {
+                fetch(unreadCountApi, { method: "GET", credentials: "same-origin" })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data && data.success) {
+                            updateNotificationBadges(data.unreadCount || 0);
+                        }
+                    })
+                    .catch(() => {});
+            }
+
+            // Polling loop for core state changes
+            setInterval(function() {
+                if (reloadPending) return;
+                
+                const pollApi = role === "student" ? "/student/realtime/poll" : 
+                               role === "teacher" ? "/teacher/realtime/poll" : null;
+                               
+                if (!pollApi) return;
+
+                fetch(pollApi, { method: "GET", credentials: "same-origin" })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (!data || !data.success) return;
+
+                        if (typeof data.unreadNotificationCount !== "undefined") {
+                            updateNotificationBadges(data.unreadNotificationCount);
+                        }
+                        
+                        // Let specific role JS files handle the specific state updates if they want,
+                        // or we can trigger simple reloads here based on flags.
+                        // For uiShell, we just want to know if there's a reason to auto-reload
+                        // (e.g. a new session started that we didn't know about).
+                        // Role-specific JS will listen to a custom event.
+                        window.dispatchEvent(new CustomEvent("attendify:poll-data", { detail: data }));
+                    })
+                    .catch(() => {});
+            }, config.pollIntervalMs || 5000);
+            
+            return;
+        }
+
+        // Socket mode (default)
         loadScript("/socket.io/socket.io.js")
             .then(function () {
                 if (typeof window.io === "undefined") {
@@ -527,6 +597,20 @@
 
                 socket.__uiShellRealtimeAttached = true;
 
+                window.dispatchEvent(
+                    new CustomEvent("attendify:socket-ready", {
+                        detail: { role: role }
+                    })
+                );
+
+                function dispatchRealtimeEvent(name, detail) {
+                    window.dispatchEvent(
+                        new CustomEvent(name, {
+                            detail: detail || {}
+                        })
+                    );
+                }
+
                 function joinRealtimeRooms() {
                     if (role === "student") {
                         socket.emit("student:join");
@@ -548,26 +632,12 @@
                     joinRealtimeRooms();
                 }
 
-                let reloadPending = false;
                 let lastSocketErrorToastAt = 0;
-
-                function queueReload(message) {
-                    if (reloadPending || !shouldAutoReloadForUpdate(role)) {
-                        return;
-                    }
-
-                    reloadPending = true;
-                    showRealtimeToast(message || "New update received. Refreshing...", "success");
-
-                    setTimeout(function () {
-                        window.location.reload();
-                    }, 900);
-                }
 
                 function showSocketIssueToast(message) {
                     const now = Date.now();
 
-                    if (now - lastSocketErrorToastAt < 5000) {
+                    if (now - lastSocketErrorToastAt < 30000) { // Throttled to 30s
                         return;
                     }
 
@@ -585,7 +655,7 @@
                     });
 
                     socket.on("connect_error", function () {
-                        showSocketIssueToast("Realtime connection issue. Reconnecting...");
+                        showSocketIssueToast("Realtime temporarily unavailable. The page will keep updating automatically.");
                     });
                 }
 
@@ -629,19 +699,29 @@
                     updateNotificationBadges(payload.unreadCount || 0);
                 });
 
-                socket.on("schedule:changed", function () {
-                    queueReload("Schedule updated. Refreshing...");
+                socket.on("schedule:changed", function (payload) {
+                    dispatchRealtimeEvent("attendify:schedule-changed", payload);
+
+                    if (role === "admin" || role === "teacher") {
+                        showRealtimeToast("Schedule updated.", "success");
+                    } else {
+                        queueReload("Schedule updated. Refreshing...");
+                    }
                 });
 
-                socket.on("attendance:started:admin", function () {
-                    queueReload("Attendance session started. Refreshing...");
+                socket.on("attendance:started:admin", function (payload) {
+                    dispatchRealtimeEvent("attendify:attendance-started", payload);
+                    showRealtimeToast("Attendance session started.", "success");
                 });
 
-                socket.on("attendance:ended:admin", function () {
-                    queueReload("Attendance session ended. Refreshing...");
+                socket.on("attendance:ended:admin", function (payload) {
+                    dispatchRealtimeEvent("attendify:attendance-ended", payload);
+                    showRealtimeToast("Attendance session ended.", "success");
                 });
 
-                socket.on("attendance:started", function () {
+                socket.on("attendance:started", function (payload) {
+                    dispatchRealtimeEvent("attendify:attendance-started", payload);
+
                     if (
                         role === "student" &&
                         window.location.pathname !== "/student/dashboard" &&
@@ -651,7 +731,9 @@
                     }
                 });
 
-                socket.on("attendance:ended", function () {
+                socket.on("attendance:ended", function (payload) {
+                    dispatchRealtimeEvent("attendify:attendance-ended", payload);
+
                     if (
                         role === "student" &&
                         window.location.pathname !== "/student/dashboard" &&
@@ -659,6 +741,14 @@
                     ) {
                         queueReload("Attendance window updated. Refreshing...");
                     }
+                });
+
+                socket.on("attendance:started:teacher", function (payload) {
+                    dispatchRealtimeEvent("attendify:attendance-started", payload);
+                });
+
+                socket.on("attendance:ended:teacher", function (payload) {
+                    dispatchRealtimeEvent("attendify:attendance-ended", payload);
                 });
 
                 const unreadCountApi = getUnreadCountApiPath(role);

@@ -79,11 +79,28 @@ const liveDeviceSnapshotSchema = new mongoose.Schema(
             default: "Device"
         },
 
+        enrollmentNumber: {
+            type: String,
+            default: ""
+        },
+
         latitude: Number,
         longitude: Number,
         accuracy: Number,
         distance: Number,
+        configuredRadius: Number,
+        effectiveRadius: Number,
+        uncertaintyAllowance: Number,
         inside: Boolean,
+        status: {
+            type: String,
+            enum: ["INSIDE", "NEAR", "OUTSIDE", "POOR_ACCURACY", "UNKNOWN"],
+            default: "UNKNOWN"
+        },
+        reasonCode: {
+            type: String,
+            default: ""
+        },
         online: {
             type: Boolean,
             default: true
@@ -153,6 +170,8 @@ const attendanceSessionSchema = new mongoose.Schema({
         enum: ["TEACHER_GPS"],
         default: "TEACHER_GPS"
     },
+
+    locationMeta: mongoose.Schema.Types.Mixed,
 
     radius: {
         type: Number,

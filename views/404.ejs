@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Page Not Found | Attendify</title>
+
+    <link rel="stylesheet" href="/css/notFound.css">
+    <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+    >
+</head>
+<body>
+    <main class="not-found-page" aria-labelledby="notFoundTitle">
+        <section class="not-found-panel">
+            <div class="not-found-mark" aria-hidden="true">
+                <i class="fa-solid fa-map-location-dot"></i>
+            </div>
+
+            <p class="not-found-kicker">404</p>
+            <h1 id="notFoundTitle">Page not found</h1>
+            <p class="not-found-copy">
+                The page you tried to open does not exist or has been moved.
+            </p>
+
+            <div class="not-found-actions">
+                <a href="/" class="not-found-primary">
+                    <i class="fa-solid fa-house"></i>
+                    Home
+                </a>
+
+                <button type="button" class="not-found-secondary" onclick="history.back()">
+                    <i class="fa-solid fa-arrow-left"></i>
+                    Back
+                </button>
+            </div>
+        </section>
+    </main>
+</body>
+</html>

@@ -1,56 +1,52 @@
 /**
- * AttendifyGeo — high-accuracy geolocation engine for web-based attendance.
+ * AttendifyGeo — multi-sample high-accuracy geolocation for attendance.
  *
- * Strategy:
- *   1.  Collect multiple GPS samples using watchPosition (continuous updates).
- *   2.  Compute a weighted centroid using 1/accuracy² weights so high-accuracy
- *       readings contribute far more than noisy ones.
- *   3.  Reject outlier samples that are statistically too far from the
- *       running centroid (more than 2× the best reported accuracy).
- *   4.  Return the best single sample *nearest* to the weighted centroid, so
- *       the returned object has a valid GeolocationPosition shape that all
- *       existing code can consume unchanged.
- *   5.  Expose a live progress callback so the UI can show improving accuracy.
- *
- * Limitations (browser-inherent, cannot be fixed in JS):
- *   - Indoor environments without Wi-Fi data may stay ≥ 20 m.
- *   - iOS always reports accuracy from Core Location; Chrome on Android uses
- *     the Fused Location Provider which is generally best-in-class.
+ * Collects readings for 10–20 seconds, rejects outliers, returns a stable fix
+ * with accuracy metadata for server-side uncertainty handling.
  */
-
 (function (root) {
     "use strict";
 
-    // ── constants ────────────────────────────────────────────────────────────
-    var TARGET_ACCURACY_M       = 15;   // resolve immediately if we hit this
-    var ACCEPTABLE_ACCURACY_M   = 40;   // resolve after MIN_SAMPLES at this
-    var MAX_ACCURACY_ALLOWED_M  = 150;  // reject samples worse than this outright
-    var MIN_SAMPLES             = 4;    // minimum before considering resolve
-    var MAX_SAMPLES             = 16;   // collect up to this many then stop
-    var MAX_WAIT_MS             = 20000;// hard timeout
-    var OUTLIER_SIGMA           = 2.5;  // reject if > N × bestAccuracy from centroid
+    var TARGET_ACCURACY_M = 10;
+    var ACCEPTABLE_ACCURACY_M = 25;
+    var MAX_ACCURACY_ALLOWED_M = 500;
+    var MIN_SAMPLES = 4;
+    var MAX_SAMPLES = 24;
+    var MIN_COLLECTION_MS = 10000;
+    var MAX_WAIT_MS = 20000;
+    var OUTLIER_SIGMA = 2.5;
+    var MAX_SPEED_KMH = 100;
 
-    // ── Vincenty / Haversine distance (metres) ───────────────────────────────
     function distanceM(lat1, lon1, lat2, lon2) {
-        var R  = 6371000;
-        var φ1 = lat1 * Math.PI / 180;
-        var φ2 = lat2 * Math.PI / 180;
-        var Δφ = (lat2 - lat1) * Math.PI / 180;
-        var Δλ = (lon2 - lon1) * Math.PI / 180;
-        var a  = Math.sin(Δφ / 2) * Math.sin(Δφ / 2)
-               + Math.cos(φ1) * Math.cos(φ2)
-               * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+        var R = 6371000;
+        var φ1 = (lat1 * Math.PI) / 180;
+        var φ2 = (lat2 * Math.PI) / 180;
+        var Δφ = ((lat2 - lat1) * Math.PI) / 180;
+        var Δλ = ((lon2 - lon1) * Math.PI) / 180;
+        var a =
+            Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+            Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
         return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
 
-    // ── weighted centroid ────────────────────────────────────────────────────
-    /**
-     * Given an array of GeolocationPosition objects, return
-     * { lat, lon, accuracy } where lat/lon is the inverse-accuracy²-weighted
-     * mean and accuracy is the weighted RMS of individual accuracies.
-     */
+    function isValidCoords(lat, lon, acc) {
+        return (
+            Number.isFinite(lat) &&
+            Number.isFinite(lon) &&
+            lat >= -90 &&
+            lat <= 90 &&
+            lon >= -180 &&
+            lon <= 180 &&
+            Number.isFinite(acc) &&
+            acc > 0 &&
+            acc <= MAX_ACCURACY_ALLOWED_M
+        );
+    }
+
     function weightedCentroid(positions) {
-        if (!positions || positions.length === 0) return null;
+        if (!positions || positions.length === 0) {
+            return null;
+        }
 
         var totalWeight = 0;
         var wLat = 0;
@@ -58,41 +54,42 @@
 
         for (var i = 0; i < positions.length; i++) {
             var c = positions[i].coords;
-            var acc = Math.max(c.accuracy, 1); // avoid division by zero
+            var acc = Math.max(c.accuracy, 1);
             var w = 1 / (acc * acc);
             totalWeight += w;
-            wLat += c.latitude  * w;
+            wLat += c.latitude * w;
             wLon += c.longitude * w;
         }
 
         var lat = wLat / totalWeight;
         var lon = wLon / totalWeight;
-
-        // Weighted RMS accuracy (rough but good enough for our use)
         var wAcc = 0;
-        for (var j = 0; j < positions.length; j++) {
-            var c2   = positions[j].coords;
-            var acc2 = Math.max(c2.accuracy, 1);
-            var w2   = 1 / (acc2 * acc2);
-            wAcc += (acc2 * acc2) * w2;
-        }
-        var rmAcc = Math.sqrt(wAcc / totalWeight);
 
-        return { lat: lat, lon: lon, accuracy: rmAcc };
+        for (var j = 0; j < positions.length; j++) {
+            var c2 = positions[j].coords;
+            var acc2 = Math.max(c2.accuracy, 1);
+            var w2 = 1 / (acc2 * acc2);
+            wAcc += acc2 * acc2 * w2;
+        }
+
+        return {
+            lat: lat,
+            lon: lon,
+            accuracy: Math.sqrt(wAcc / totalWeight)
+        };
     }
 
-    // ── find sample nearest to centroid ──────────────────────────────────────
     function nearestSampleToCentroid(positions, centroid) {
         var best = null;
-        var bestDist = Infinity;
+        var bestScore = Infinity;
 
         for (var i = 0; i < positions.length; i++) {
-            var c    = positions[i].coords;
-            var d    = distanceM(c.latitude, c.longitude, centroid.lat, centroid.lon);
-            var score = d + c.accuracy * 0.5; // penalise poor accuracy
+            var c = positions[i].coords;
+            var d = distanceM(c.latitude, c.longitude, centroid.lat, centroid.lon);
+            var score = d + c.accuracy * 0.5;
 
-            if (score < bestDist) {
-                bestDist = score;
+            if (score < bestScore) {
+                bestScore = score;
                 best = positions[i];
             }
         }
@@ -100,47 +97,91 @@
         return best;
     }
 
-    // ── remove statistical outliers ──────────────────────────────────────────
     function rejectOutliers(positions, centroid, bestAcc) {
-        var threshold = Math.max(bestAcc * OUTLIER_SIGMA, 30); // at least 30 m
+        var threshold = Math.max(bestAcc * OUTLIER_SIGMA, 30);
+        var now = Date.now();
 
-        return positions.filter(function (pos) {
+        return positions.filter(function (pos, index) {
+            var sampleAgeMs = now - pos.timestamp;
+            if (sampleAgeMs > 30000) {
+                return false;
+            }
+
             var c = pos.coords;
             var d = distanceM(c.latitude, c.longitude, centroid.lat, centroid.lon);
-            return d <= threshold;
-        });
-    }
+            if (d > threshold) {
+                return false;
+            }
 
-    // ── main function ─────────────────────────────────────────────────────────
-    /**
-     * Collect GPS samples and return the best computed position.
-     *
-     * @param {function} onProgress  called with (currentBestAccuracyM, bestRawSample)
-     * @returns {Promise<GeolocationPosition>}
-     */
-    function getBestPosition(onProgress) {
-        return new Promise(function (resolve, reject) {
-            var rawSamples  = [];
-            var finished    = false;
-            var watchId     = null;
-            var timeoutId   = null;
-
-            function cleanup() {
-                if (timeoutId) clearTimeout(timeoutId);
-                if (watchId !== null && navigator.geolocation) {
-                    try { navigator.geolocation.clearWatch(watchId); } catch (e) {}
+            if (index > 0) {
+                var prev = positions[index - 1];
+                var timeDiffSec = Math.max((pos.timestamp - prev.timestamp) / 1000, 1);
+                var distM = distanceM(
+                    c.latitude,
+                    c.longitude,
+                    prev.coords.latitude,
+                    prev.coords.longitude
+                );
+                var speedKmh = (distM / timeDiffSec) * 3.6;
+                if (speedKmh > MAX_SPEED_KMH) {
+                    return false;
                 }
             }
 
+            return true;
+        });
+    }
+
+    function getBestPosition(onProgress, options) {
+        options = options || {};
+
+        var minCollectionMs = Number(options.minCollectionMs) || MIN_COLLECTION_MS;
+        var maxWaitMs = Number(options.maxWaitMs) || MAX_WAIT_MS;
+
+        return new Promise(function (resolve, reject) {
+            var rawSamples = [];
+            var finished = false;
+            var watchId = null;
+            var timeoutId = null;
+            var startTime = Date.now();
+
+            function cleanup() {
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                }
+
+                if (watchId !== null && navigator.geolocation) {
+                    try {
+                        navigator.geolocation.clearWatch(watchId);
+                    } catch (e) {
+                        // ignore
+                    }
+                }
+            }
+
+            function elapsedMs() {
+                return Date.now() - startTime;
+            }
+
+            function minCollectionReached() {
+                return elapsedMs() >= minCollectionMs;
+            }
+
             function getBestRaw() {
-                if (rawSamples.length === 0) return null;
+                if (rawSamples.length === 0) {
+                    return null;
+                }
+
                 return rawSamples.reduce(function (best, cur) {
                     return cur.coords.accuracy < best.coords.accuracy ? cur : best;
                 });
             }
 
             function done(error) {
-                if (finished) return;
+                if (finished) {
+                    return;
+                }
+
                 finished = true;
                 cleanup();
 
@@ -149,110 +190,162 @@
                     return;
                 }
 
-                // Build centroid from all samples
                 var centroid = weightedCentroid(rawSamples);
-
-                // Reject outliers
                 var best0 = getBestRaw();
                 var filtered = rejectOutliers(rawSamples, centroid, best0.coords.accuracy);
+                var finalSamples = filtered.length >= 2 ? filtered : rawSamples;
+                var finalCentroid = weightedCentroid(finalSamples);
+                var resultSample = nearestSampleToCentroid(finalSamples, finalCentroid);
 
-                if (filtered.length < 2) {
-                    // Too few samples survived — fall back to raw best
-                    resolve(best0);
-                    return;
+                var avgAcc = 0;
+                if (rawSamples.length > 0) {
+                    avgAcc =
+                        rawSamples.reduce(function (sum, cur) {
+                            return sum + cur.coords.accuracy;
+                        }, 0) / rawSamples.length;
                 }
 
-                // Recompute centroid with clean data
-                var centroid2  = weightedCentroid(filtered);
-                var resultSample = nearestSampleToCentroid(filtered, centroid2);
+                var reportedAccuracy = Math.max(
+                    resultSample.coords.accuracy,
+                    finalCentroid.accuracy,
+                    Math.round(avgAcc * 0.85)
+                );
 
-                // Build a synthetic position with the centroid coordinates and
-                // the best remaining accuracy figure so existing code works unchanged.
                 var synth = {
                     coords: {
-                        latitude:         centroid2.lat,
-                        longitude:        centroid2.lon,
-                        accuracy:         Math.min(resultSample.coords.accuracy, centroid2.accuracy),
-                        altitude:         resultSample.coords.altitude,
+                        latitude: finalCentroid.lat,
+                        longitude: finalCentroid.lon,
+                        accuracy: reportedAccuracy,
+                        altitude: resultSample.coords.altitude,
                         altitudeAccuracy: resultSample.coords.altitudeAccuracy,
-                        heading:          resultSample.coords.heading,
-                        speed:            resultSample.coords.speed
+                        heading: resultSample.coords.heading,
+                        speed: resultSample.coords.speed
                     },
-                    timestamp: resultSample.timestamp
+                    timestamp: resultSample.timestamp,
+                    meta: {
+                        source: "attendify-geo-v3",
+                        sampleCount: rawSamples.length,
+                        usedSampleCount: finalSamples.length,
+                        rejectedOutliers: rawSamples.length - finalSamples.length,
+                        bestAccuracy: best0.coords.accuracy,
+                        averageAccuracy: avgAcc,
+                        collectionMs: elapsedMs()
+                    }
                 };
 
                 resolve(synth);
             }
 
+            function tryFinishEarly() {
+                if (!minCollectionReached()) {
+                    return false;
+                }
+
+                var best = getBestRaw();
+                if (!best) {
+                    return false;
+                }
+
+                var acc = best.coords.accuracy;
+
+                if (acc <= TARGET_ACCURACY_M && rawSamples.length >= MIN_SAMPLES) {
+                    done();
+                    return true;
+                }
+
+                if (acc <= ACCEPTABLE_ACCURACY_M && rawSamples.length >= MIN_SAMPLES) {
+                    setTimeout(function () {
+                        if (!finished) {
+                            done();
+                        }
+                    }, 1200);
+                    return true;
+                }
+
+                return false;
+            }
+
             function addSample(position) {
-                if (finished || !position || !position.coords) return;
+                if (finished || !position || !position.coords) {
+                    return;
+                }
 
-                var acc = position.coords.accuracy;
+                var acc = Number(position.coords.accuracy);
+                var lat = Number(position.coords.latitude);
+                var lon = Number(position.coords.longitude);
 
-                // Discard completely unreliable readings
-                if (acc > MAX_ACCURACY_ALLOWED_M) {
-                    if (onProgress) onProgress(acc, getBestRaw());
+                if (!isValidCoords(lat, lon, acc)) {
+                    if (onProgress) {
+                        onProgress(acc, getBestRaw());
+                    }
                     return;
                 }
 
                 rawSamples.push(position);
 
-                var best = getBestRaw();
-                if (onProgress) onProgress(acc, best);
+                if (onProgress) {
+                    onProgress(acc, getBestRaw());
+                }
 
-                // Early exit: excellent accuracy
-                if (acc <= TARGET_ACCURACY_M && rawSamples.length >= MIN_SAMPLES) {
-                    done();
+                if (tryFinishEarly()) {
                     return;
                 }
 
-                // Good enough after minimum samples
-                if (acc <= ACCEPTABLE_ACCURACY_M && rawSamples.length >= MIN_SAMPLES) {
-                    // Wait 1.5s more in case it improves further
-                    setTimeout(function () {
-                        if (!finished) done();
-                    }, 1500);
-                    return;
-                }
-
-                // Collected the maximum we want
-                if (rawSamples.length >= MAX_SAMPLES) {
+                if (rawSamples.length >= MAX_SAMPLES && minCollectionReached()) {
                     done();
                 }
             }
 
             function handleError(error) {
                 if (error && error.code === 1) {
-                    // Permission denied — fail immediately
                     done(error);
                 }
-                // Other errors (timeout, unavailable) → keep trying until maxWait
             }
 
             var options = {
                 enableHighAccuracy: true,
-                timeout:            18000,
-                maximumAge:         0
+                timeout: 18000,
+                maximumAge: 0
             };
 
-            // Kick off both a one-shot + continuous watch for fastest first fix
             try {
                 navigator.geolocation.getCurrentPosition(addSample, handleError, options);
-            } catch (e) {}
+            } catch (e) {
+                // ignore
+            }
 
             try {
                 watchId = navigator.geolocation.watchPosition(addSample, handleError, options);
-            } catch (e) {}
+            } catch (e) {
+                // ignore
+            }
 
-            timeoutId = setTimeout(function () { done(); }, MAX_WAIT_MS);
+            timeoutId = setTimeout(function () {
+                done();
+            }, maxWaitMs);
         });
     }
 
-    // ── expose ────────────────────────────────────────────────────────────────
+    function getCollectionOptionsForRadius(adminRadiusMeters) {
+        var admin = Math.max(1, Number(adminRadiusMeters) || 100);
+
+        if (admin <= 5) {
+            return { minCollectionMs: 20000, maxWaitMs: 25000 };
+        }
+
+        if (admin < 25) {
+            return { minCollectionMs: 15000, maxWaitMs: 22000 };
+        }
+
+        return { minCollectionMs: MIN_COLLECTION_MS, maxWaitMs: MAX_WAIT_MS };
+    }
+
     root.AttendifyGeo = {
         getBestPosition: getBestPosition,
-        distanceM:       distanceM,
-        weightedCentroid: weightedCentroid
+        getCollectionOptionsForRadius: getCollectionOptionsForRadius,
+        distanceM: distanceM,
+        weightedCentroid: weightedCentroid,
+        MIN_COLLECTION_MS: MIN_COLLECTION_MS,
+        MAX_WAIT_MS: MAX_WAIT_MS
     };
-
-}(window));
+})(window);

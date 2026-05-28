@@ -732,6 +732,34 @@ button {
     color: #0f172a;
 }
 
+.teacher-map-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.teacher-map-icon-button {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    border: 1px solid #dbe3ef;
+    background: #ffffff;
+    color: #0f172a;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: 0.16s ease;
+}
+
+.teacher-map-icon-button:hover,
+.teacher-map-icon-button:focus-visible {
+    border-color: #2563eb;
+    color: #1d4ed8;
+    box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.10);
+    outline: none;
+}
+
 .teacher-map-layout {
     display: grid;
     grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.9fr);
@@ -821,6 +849,19 @@ button {
     font-weight: 700;
     line-height: 1.5;
     padding: 8px 2px;
+}
+
+.teacher-map-student-card.is-live {
+    cursor: pointer;
+    transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.teacher-map-student-card.is-live:hover,
+.teacher-map-student-card.is-live:focus-visible {
+    border-color: #2563eb !important;
+    box-shadow: 0 10px 26px rgba(15, 23, 42, 0.10);
+    outline: none;
+    transform: translateY(-1px);
 }
 
 .teacher-map {

@@ -1,7 +1,12 @@
-document.addEventListener("DOMContentLoaded", function () {
-    if (typeof io === "undefined" || typeof L === "undefined") {
+function initTeacherLiveMap() {
+    if (typeof L === "undefined") {
         return;
     }
+
+    const config = window.AttendifyRealtimeConfig || { mode: "socket", pollIntervalMs: 5000 };
+    const mode = config.mode || "socket";
+    const isSocketMode = mode === "socket";
+    const isPollingMode = mode === "polling";
 
     const mapEl = document.getElementById("teacherLiveMap");
 
@@ -9,34 +14,49 @@ document.addEventListener("DOMContentLoaded", function () {
         return;
     }
 
-    window.__attendifyTeacherMapAttached = true;
-
-    // Re-use the shared socket that teacherRealtime.js already set up.
-    // teacherRealtime.js has already emitted teacher:join and handles the teacher room.
-    // We should NOT call teacher:join again here to avoid duplicate joins.
-    const socket =
-        window.AttendifySharedSocket ||
-        io({
-            transports: ["websocket", "polling"],
-            withCredentials: true,
-            timeout: 20000,
-            reconnectionAttempts: 20,
-            reconnectionDelayMax: 5000
-        });
-    window.AttendifySharedSocket = socket;
-
-    // If the shared socket hasn't joined as teacher yet, do it now.
-    // teacherRealtime.js normally does this first, but just in case:
-    function ensureTeacherJoined() {
-        if (!socket.__teacherRealtimeAttached) {
-            socket.emit("teacher:join");
+    if (mode === "disabled" || (!isSocketMode && !isPollingMode)) {
+        mapEl.innerHTML = '<div style="display:flex;height:100%;align-items:center;justify-content:center;color:#64748b;background:#f8fafc;padding:20px;text-align:center;border-radius:12px;"><div><i class="fa-solid fa-satellite" style="font-size:32px;margin-bottom:12px;opacity:0.5;"></i><p>Live map updates are disabled.</p></div></div>';
+        const rosterEl = document.getElementById("teacherMapRoster");
+        if (rosterEl) {
+            rosterEl.innerHTML = '<div class="teacher-map-roster-empty">Live location tracking is disabled.</div>';
         }
+        return;
     }
 
-    socket.on("connect", ensureTeacherJoined);
+    if (isSocketMode && typeof io === "undefined") {
+        return;
+    }
 
-    if (socket.connected) {
-        ensureTeacherJoined();
+    window.__attendifyTeacherMapAttached = true;
+
+    let socket = null;
+    let pollingTimer = null;
+    let pollingRequestPending = false;
+
+    if (isSocketMode) {
+        // Re-use the shared socket that teacherRealtime.js already set up.
+        socket =
+            window.AttendifySharedSocket ||
+            io({
+                transports: ["websocket", "polling"],
+                withCredentials: true,
+                timeout: 20000,
+                reconnectionAttempts: 20,
+                reconnectionDelayMax: 5000
+            });
+        window.AttendifySharedSocket = socket;
+
+        function ensureTeacherJoined() {
+            if (!socket.__teacherRealtimeAttached) {
+                socket.emit("teacher:join");
+            }
+        }
+
+        socket.on("connect", ensureTeacherJoined);
+
+        if (socket.connected) {
+            ensureTeacherJoined();
+        }
     }
 
     const insidePill = document.getElementById("teacherMapInsidePill");
@@ -50,6 +70,8 @@ document.addEventListener("DOMContentLoaded", function () {
     const sessionSelectEl = document.getElementById("teacherMapSessionSelect");
     const mapOverlay = document.getElementById("teacherMapOverlay");
     const searchInput = document.getElementById("teacherMapSearch");
+    const fitButton = document.getElementById("teacherMapFitButton");
+    const centerButton = document.getElementById("teacherMapCenterButton");
 
     let map = null;
     let teacherMarker = null;
@@ -58,10 +80,45 @@ document.addEventListener("DOMContentLoaded", function () {
     let activeSessionId = "";
     let mapInitialized = false;
     let currentSearchTerm = "";
+    let sessionCenter = null;
+    let hasFitInitialDevices = false;
     
     const deviceMarkers = new Map();
+    const accuracyCircles = new Map();
     const deviceState = new Map();
     const rosterByStudent = new Map();
+    const markerStabilizers = new Map();
+
+    function getMarkerStabilizer(markerKey) {
+        if (!window.AttendifyLocationStabilizer) {
+            return null;
+        }
+
+        if (!markerStabilizers.has(markerKey)) {
+            markerStabilizers.set(
+                markerKey,
+                window.AttendifyLocationStabilizer.create({
+                    minMoveMeters: 3,
+                    accuracyRatio: 0.3,
+                    emaAlpha: 0.16,
+                    heartbeatMs: 30000,
+                    bufferSize: 10
+                })
+            );
+        }
+
+        return markerStabilizers.get(markerKey);
+    }
+
+    function stabilizeMarkerPosition(markerKey, lat, lon, accuracy) {
+        const stabilizer = getMarkerStabilizer(markerKey);
+
+        if (!stabilizer) {
+            return { lat: lat, lon: lon, moved: true, isFirst: true };
+        }
+
+        return stabilizer.update(lat, lon, accuracy);
+    }
 
     function readBootstrap() {
         const el = document.getElementById("teacherLiveMapBootstrap");
@@ -95,6 +152,15 @@ document.addEventListener("DOMContentLoaded", function () {
         if (typeof meters !== 'number' || isNaN(meters)) return "Unknown";
         if (meters < 1000) return Math.round(meters) + " m away";
         return (meters / 1000).toFixed(1) + " km away";
+    }
+
+    function escapeHtml(value) {
+        return String(value || "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
     }
 
     function recalcCounts() {
@@ -147,15 +213,125 @@ document.addEventListener("DOMContentLoaded", function () {
         window.addEventListener('attendify:layout-changed', invalidateMap);
     }
 
-    function clearSession() {
-        activeSessionId = "";
-        if (mapOverlay) mapOverlay.style.display = "flex";
-        
+    function removeDeviceLayers() {
         deviceMarkers.forEach(function (marker) {
             try { marker.remove(); } catch (e) {}
         });
         deviceMarkers.clear();
+
+        accuracyCircles.forEach(function (circle) {
+            try { circle.remove(); } catch (e) {}
+        });
+        accuracyCircles.clear();
+
         deviceState.clear();
+        markerStabilizers.clear();
+    }
+
+    function fitMapToLiveData() {
+        if (!map || !activeSessionId) return;
+
+        const bounds = L.latLngBounds([]);
+
+        if (radiusCircle && typeof radiusCircle.getBounds === "function") {
+            bounds.extend(radiusCircle.getBounds());
+        } else if (sessionCenter) {
+            bounds.extend([sessionCenter.lat, sessionCenter.lon]);
+        }
+
+        deviceMarkers.forEach(function (marker) {
+            try {
+                bounds.extend(marker.getLatLng());
+            } catch (e) {
+                // ignore
+            }
+        });
+
+        if (!bounds.isValid()) return;
+
+        map.fitBounds(bounds, {
+            padding: [36, 36],
+            maxZoom: deviceMarkers.size > 0 ? 19 : 18,
+            animate: true
+        });
+    }
+
+    function centerOnSession() {
+        if (!map || !sessionCenter) return;
+
+        map.setView([sessionCenter.lat, sessionCenter.lon], 18, {
+            animate: true
+        });
+
+        if (teacherMarker) {
+            teacherMarker.openPopup();
+        }
+    }
+
+    function applySessionPayload(payload) {
+        if (!payload || !payload.sessionId) return;
+
+        seedRoster(payload.roster);
+        setSessionCenter(payload);
+        applySnapshot(payload.snapshot || []);
+    }
+
+    function loadPollingSnapshot(sessionId) {
+        if (!sessionId || pollingRequestPending) return;
+
+        pollingRequestPending = true;
+
+        fetch("/teacher/live-map/session/" + encodeURIComponent(String(sessionId)), {
+            method: "GET",
+            credentials: "same-origin",
+            headers: {
+                "Accept": "application/json"
+            }
+        })
+            .then(function (response) {
+                return response.json();
+            })
+            .then(function (data) {
+                if (!data || !data.success) {
+                    return;
+                }
+
+                applySessionPayload(data);
+            })
+            .catch(function () {
+                // polling retries on the next interval
+            })
+            .finally(function () {
+                pollingRequestPending = false;
+            });
+    }
+
+    function startPollingSession(sessionId) {
+        if (pollingTimer) {
+            clearInterval(pollingTimer);
+            pollingTimer = null;
+        }
+
+        if (!sessionId) return;
+
+        loadPollingSnapshot(sessionId);
+
+        pollingTimer = setInterval(function () {
+            loadPollingSnapshot(sessionId);
+        }, Math.max(Number(config.pollIntervalMs || 5000), 3000));
+    }
+
+    function clearSession() {
+        activeSessionId = "";
+        sessionCenter = null;
+        hasFitInitialDevices = false;
+        if (pollingTimer) {
+            clearInterval(pollingTimer);
+            pollingTimer = null;
+        }
+        if (mapOverlay) mapOverlay.style.display = "flex";
+        
+        removeDeviceLayers();
         rosterByStudent.clear();
 
         if (teacherMarker) {
@@ -179,7 +355,13 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function watchSession(sessionId) {
         if (!sessionId) return;
-        socket.emit("teacher:watch-session", { sessionId: String(sessionId) });
+
+        if (isSocketMode && socket) {
+            socket.emit("teacher:watch-session", { sessionId: String(sessionId) });
+            return;
+        }
+
+        startPollingSession(sessionId);
     }
 
     function setSessionCenter(payload) {
@@ -188,14 +370,32 @@ document.addEventListener("DOMContentLoaded", function () {
         const sessionId = String(payload.sessionId || "");
         const lat = Number(payload.latitude || 0);
         const lon = Number(payload.longitude || 0);
-        const radius = Number(payload.radius || 0);
+        const adminRadius = Number(
+            payload.configuredRadius !== undefined ? payload.configuredRadius : payload.radius || 0
+        );
+        const verificationRadius = Number(
+            payload.effectiveRadius || payload.verificationRadius || adminRadius
+        );
 
-        if (!sessionId || !Number.isFinite(lat) || !Number.isFinite(lon) || radius <= 0) {
+        if (!sessionId || !Number.isFinite(lat) || !Number.isFinite(lon) || adminRadius <= 0) {
             setHint("Live session is active but location center is not configured yet.");
             return;
         }
 
+        const sessionChanged = activeSessionId !== sessionId;
         activeSessionId = sessionId;
+        sessionCenter = {
+            lat: lat,
+            lon: lon,
+            radius: adminRadius,
+            verificationRadius: verificationRadius
+        };
+
+        if (sessionChanged) {
+            removeDeviceLayers();
+            hasFitInitialDevices = false;
+        }
+
         if (mapOverlay) mapOverlay.style.display = "none";
 
         if (teacherMarker) {
@@ -208,24 +408,57 @@ document.addEventListener("DOMContentLoaded", function () {
                 iconAnchor: [10, 10]
             });
             teacherMarker = L.marker([lat, lon], { icon: teacherIcon, title: "Teacher Location", zIndexOffset: 1000 }).addTo(map);
-            teacherMarker.bindPopup("<b>Teacher / Classroom Center</b><br>Attendance radius originates here.");
+            teacherMarker.bindPopup(
+                "<b>Teacher / Classroom Center</b><br>Admin radius: " +
+                    Math.round(adminRadius) +
+                    " m<br>GPS verification zone: " +
+                    Math.round(verificationRadius) +
+                    " m"
+            );
         }
 
         if (radiusCircle) {
             radiusCircle.setLatLng([lat, lon]);
-            radiusCircle.setRadius(radius);
+            radiusCircle.setRadius(adminRadius);
         } else {
             radiusCircle = L.circle([lat, lon], {
-                radius: radius,
-                color: "#16a34a",
+                radius: adminRadius,
+                color: "#ea580c",
                 weight: 2,
-                fillColor: "#16a34a",
-                fillOpacity: 0.1,
-                dashArray: "5, 5"
+                fillColor: "#fb923c",
+                fillOpacity: 0.06,
+                dashArray: "4, 6"
             }).addTo(map);
         }
 
-        map.setView([lat, lon], 18);
+        if (effectiveRadiusCircle) {
+            effectiveRadiusCircle.setLatLng([lat, lon]);
+            effectiveRadiusCircle.setRadius(verificationRadius);
+        } else {
+            effectiveRadiusCircle = L.circle([lat, lon], {
+                radius: verificationRadius,
+                color: "#16a34a",
+                weight: 2,
+                fillColor: "#22c55e",
+                fillOpacity: 0.08
+            }).addTo(map);
+        }
+
+        if (verificationRadius > adminRadius) {
+            setHint(
+                "Admin radius " +
+                    Math.round(adminRadius) +
+                    " m (orange). GPS verification zone " +
+                    Math.round(verificationRadius) +
+                    " m (green) — students can be inside green when GPS is uncertain."
+            );
+        } else {
+            setHint("Showing live student devices for this session.");
+        }
+
+        if (sessionChanged || deviceMarkers.size === 0) {
+            map.setView([lat, lon], 18);
+        }
 
         setTimeout(function () {
             if (map) map.invalidateSize();
@@ -329,15 +562,6 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
         }
         
-        function escapeHtml(value) {
-            return String(value || "")
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;")
-                .replace(/"/g, "&quot;")
-                .replace(/'/g, "&#039;");
-        }
-
         rosterEl.innerHTML = rows.map(function (row) {
             const isOnline = row.status !== "OFFLINE" && row.status !== "NO_DATA";
             const escapedName = escapeHtml(row.meta.fullName || "Student");
@@ -345,6 +569,9 @@ document.addEventListener("DOMContentLoaded", function () {
             const initial = escapedName.charAt(0).toUpperCase();
             
             const c = isOnline ? getStatusColors(row.status) : { bg: "#f1f5f9", color: "#94a3b8", border: "#e2e8f0", text: "Offline" };
+            const markerAttr = row.latest && isOnline
+                ? ' data-marker-key="' + escapeHtml(row.latest.markerKey || "") + '" tabindex="0" role="button"'
+                : "";
             
             let details = "";
             if (row.latest && isOnline) {
@@ -358,7 +585,7 @@ document.addEventListener("DOMContentLoaded", function () {
             }
 
             return `
-                <article class="teacher-map-student-card" style="border: 1px solid ${c.border}; background: #fff; border-radius: 12px; padding: 12px; margin-bottom: 8px;">
+                <article class="teacher-map-student-card ${isOnline ? "is-live" : ""}"${markerAttr} style="border: 1px solid ${c.border}; background: #fff; border-radius: 12px; padding: 12px; margin-bottom: 8px;">
                     <div style="display: flex; gap: 12px; align-items: flex-start;">
                         <div style="width: 36px; height: 36px; border-radius: 50%; background: ${c.bg}; color: ${c.color}; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; flex-shrink: 0; border: 2px solid ${c.border};">
                             ${initial}
@@ -384,6 +611,43 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
+    function openMarkerFromRoster(target) {
+        if (!target || typeof target.closest !== "function") return;
+
+        const card = target.closest(".teacher-map-student-card[data-marker-key]");
+        if (!card) return;
+
+        const markerKey = card.getAttribute("data-marker-key") || "";
+        const marker = deviceMarkers.get(markerKey);
+
+        if (!marker || !map) return;
+
+        map.setView(marker.getLatLng(), Math.max(map.getZoom(), 19), {
+            animate: true
+        });
+        marker.openPopup();
+    }
+
+    if (rosterEl) {
+        rosterEl.addEventListener("click", function (event) {
+            openMarkerFromRoster(event.target);
+        });
+
+        rosterEl.addEventListener("keydown", function (event) {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            openMarkerFromRoster(event.target);
+        });
+    }
+
+    if (fitButton) {
+        fitButton.addEventListener("click", fitMapToLiveData);
+    }
+
+    if (centerButton) {
+        centerButton.addEventListener("click", centerOnSession);
+    }
+
     function upsertStudent(payload) {
         if (!payload || !payload.sessionId) return;
         const sessionId = String(payload.sessionId);
@@ -398,6 +662,15 @@ document.addEventListener("DOMContentLoaded", function () {
         const lat = Number(payload.latitude);
         const lon = Number(payload.longitude);
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+
+        const stablePos = stabilizeMarkerPosition(
+            markerKey,
+            lat,
+            lon,
+            payload.accuracy
+        );
+        const drawLat = stablePos.lat;
+        const drawLon = stablePos.lon;
 
         const online = payload.online !== false;
         const distance = Number(payload.distance || 0);
@@ -416,10 +689,14 @@ document.addEventListener("DOMContentLoaded", function () {
             studentName: fullName,
             enrollmentNumber: enrollment,
             deviceId: deviceId,
+            markerKey: markerKey,
             deviceLabel: payload.deviceLabel || "Device",
-            latitude: lat,
-            longitude: lon,
+            latitude: drawLat,
+            longitude: drawLon,
             accuracy: accuracy,
+            rawLatitude: payload.rawLatitude !== undefined ? Number(payload.rawLatitude) : lat,
+            rawLongitude: payload.rawLongitude !== undefined ? Number(payload.rawLongitude) : lon,
+            gpsCorrected: Boolean(payload.gpsCorrected),
             distance: distance,
             configuredRadius: configuredRadius,
             effectiveRadius: effectiveRadius,
@@ -445,19 +722,52 @@ document.addEventListener("DOMContentLoaded", function () {
             });
 
             let marker = deviceMarkers.get(markerKey);
+
             if (marker) {
-                marker.setLatLng([lat, lon]);
+                if (stablePos.moved || stablePos.isFirst) {
+                    marker.setLatLng([drawLat, drawLon]);
+                }
+
                 marker.setIcon(markerIcon);
             } else {
-                marker = L.marker([lat, lon], { icon: markerIcon, title: fullName }).addTo(map);
+                marker = L.marker([drawLat, drawLon], {
+                    icon: markerIcon,
+                    title: fullName
+                }).addTo(map);
                 deviceMarkers.set(markerKey, marker);
+            }
+
+            let accuracyCircle = accuracyCircles.get(markerKey);
+            const accuracyRadius = Math.max(Number(accuracy || 0), 8);
+
+            if (accuracyCircle) {
+                if (stablePos.moved || stablePos.isFirst) {
+                    accuracyCircle.setLatLng([drawLat, drawLon]);
+                }
+
+                accuracyCircle.setRadius(accuracyRadius);
+                accuracyCircle.setStyle({
+                    color: colors.color,
+                    fillColor: colors.color
+                });
+            } else {
+                accuracyCircle = L.circle([drawLat, drawLon], {
+                    radius: accuracyRadius,
+                    color: colors.color,
+                    weight: 1,
+                    opacity: 0.35,
+                    fillColor: colors.color,
+                    fillOpacity: 0.08,
+                    interactive: false
+                }).addTo(map);
+                accuracyCircles.set(markerKey, accuracyCircle);
             }
 
             const popupContent = `
                 <div style="font-family: var(--shell-font, sans-serif); min-width: 180px;">
                     <div style="border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; margin-bottom: 8px;">
-                        <strong style="display: block; font-size: 15px; color: #0f172a;">${fullName}</strong>
-                        <span style="font-size: 12px; color: #64748b;">${enrollment || "No ID"}</span>
+                        <strong style="display: block; font-size: 15px; color: #0f172a;">${escapeHtml(fullName)}</strong>
+                        <span style="font-size: 12px; color: #64748b;">${escapeHtml(enrollment || "No ID")}</span>
                     </div>
                     <div style="display: grid; gap: 6px; font-size: 13px; color: #334155;">
                         <div style="display: flex; justify-content: space-between;">
@@ -476,7 +786,12 @@ document.addEventListener("DOMContentLoaded", function () {
                             <span>Effective Radius:</span> <strong>${effectiveRadius}m</strong>
                         </div>
                     </div>
-                    <div style="margin-top: 8px; font-size: 11px; color: #94a3b8; text-align: right;">
+                        ${
+                            payload.gpsCorrected
+                                ? '<div style="margin-top:6px;font-size:11px;color:#0369a1;">GPS aligned with nearby verified devices (same location cluster).</div>'
+                                : ""
+                        }
+                        <div style="margin-top: 8px; font-size: 11px; color: #94a3b8; text-align: right;">
                         Updated ${formatTime(payload.updatedAt || new Date())}
                     </div>
                 </div>
@@ -488,10 +803,20 @@ document.addEventListener("DOMContentLoaded", function () {
                 marker.remove();
                 deviceMarkers.delete(markerKey);
             }
+            let accuracyCircle = accuracyCircles.get(markerKey);
+            if (accuracyCircle) {
+                accuracyCircle.remove();
+                accuracyCircles.delete(markerKey);
+            }
         }
 
         recalcCounts();
         renderRoster();
+
+        if (!hasFitInitialDevices && deviceMarkers.size > 0) {
+            hasFitInitialDevices = true;
+            setTimeout(fitMapToLiveData, 120);
+        }
     }
 
     function applySnapshot(snapshot) {
@@ -526,70 +851,66 @@ document.addEventListener("DOMContentLoaded", function () {
             const nextId = sessionSelectEl.value;
             if (!nextId) return;
 
-            deviceMarkers.forEach(m => m.remove());
-            deviceMarkers.clear();
-            deviceState.clear();
+            removeDeviceLayers();
+            rosterByStudent.clear();
+            hasFitInitialDevices = false;
+            if (rosterEl) {
+                rosterEl.innerHTML = '<div class="teacher-map-roster-empty">Loading student devices…</div>';
+            }
 
             watchSession(nextId);
         };
     }
 
-    socket.on("attendance:started:teacher", function (payload) {
-        if (!payload || !payload.sessionId) return;
-        setSessionCenter(payload);
-        watchSession(payload.sessionId);
-    });
+    if (isSocketMode && socket) {
+        socket.on("attendance:started:teacher", function (payload) {
+            if (!payload || !payload.sessionId) return;
+            setSessionCenter(payload);
+            watchSession(payload.sessionId);
+        });
 
-    // When attendance is reopened, re-init the map for that session
-    socket.on("attendance:started:teacher", function (payload) {
-        if (!payload || !payload.sessionId) return;
-        // already handled above, but guard duplicate entries
-    });
+        socket.on("teacher:watch-session:ok", function (payload) {
+            if (!payload || !payload.sessionId) return;
+            if (sessionSelectEl && sessionSelectEl.value !== String(payload.sessionId)) {
+                sessionSelectEl.value = String(payload.sessionId);
+            }
 
-    socket.on("teacher:watch-session:ok", function (payload) {
-        if (!payload || !payload.sessionId) return;
-        if (sessionSelectEl && sessionSelectEl.value !== String(payload.sessionId)) {
-            sessionSelectEl.value = String(payload.sessionId);
-        }
+            applySessionPayload(payload);
+        });
 
-        seedRoster(payload.roster);
-        setSessionCenter(payload);
-        applySnapshot(payload.snapshot || []);
-    });
+        socket.on("attendance:ended:teacher", function (payload) {
+            if (!payload || !payload.sessionId) return;
+            if (String(payload.sessionId) === activeSessionId) clearSession();
+        });
 
-    socket.on("attendance:ended:teacher", function (payload) {
-        if (!payload || !payload.sessionId) return;
-        if (String(payload.sessionId) === activeSessionId) clearSession();
-    });
+        socket.on("student:location:update", function (payload) {
+            upsertStudent(payload);
+        });
 
-    socket.on("student:location:update", function (payload) {
-        upsertStudent(payload);
-    });
+        // When AUTO_ABSENT is overridden to PRESENT, update present/absent pill counters
+        socket.on("attendance:record-updated", function (payload) {
+            if (!payload || payload.newStatus !== "PRESENT") return;
 
-    // When AUTO_ABSENT is overridden to PRESENT, update present/absent pill counters
-    socket.on("attendance:record-updated", function (payload) {
-        if (!payload || payload.newStatus !== "PRESENT") return;
+            var sessionId = payload.sessionId ? String(payload.sessionId) : "";
+            if (!sessionId) return;
 
-        // Update the counters shown on teacher live cards
-        var sessionId = payload.sessionId ? String(payload.sessionId) : "";
-        if (!sessionId) return;
+            var card = document.querySelector(".live-card[data-session-id='" + sessionId + "']");
+            if (!card) return;
 
-        var card = document.querySelector(".live-card[data-session-id='" + sessionId + "']");
-        if (!card) return;
+            var presentEl = card.querySelector(".js-live-present-count");
+            var absentEl = card.querySelector(".js-live-absent-count");
 
-        var presentEl = card.querySelector(".js-live-present-count");
-        var absentEl = card.querySelector(".js-live-absent-count");
+            if (presentEl) {
+                var p = parseInt(presentEl.textContent, 10) || 0;
+                presentEl.textContent = p + 1;
+            }
 
-        if (presentEl) {
-            var p = parseInt(presentEl.textContent, 10) || 0;
-            presentEl.textContent = p + 1;
-        }
-
-        if (absentEl) {
-            var a = parseInt(absentEl.textContent, 10) || 0;
-            if (a > 0) absentEl.textContent = a - 1;
-        }
-    });
+            if (absentEl) {
+                var a = parseInt(absentEl.textContent, 10) || 0;
+                if (a > 0) absentEl.textContent = a - 1;
+            }
+        });
+    }
 
     // Handle initial state
     const bootstrap = readBootstrap();
@@ -611,4 +932,10 @@ document.addEventListener("DOMContentLoaded", function () {
     } else {
         if (mapOverlay) mapOverlay.style.display = "flex";
     }
-});
+}
+
+if (document.readyState !== "loading") {
+    initTeacherLiveMap();
+} else {
+    document.addEventListener("DOMContentLoaded", initTeacherLiveMap);
+}

@@ -225,13 +225,29 @@ function markAttendance(sessionId, button) {
     button.dataset.pending = "true";
     button.disabled = true;
 
+    let lastTipAt = 0;
+
     getBestAttendanceToken(sessionId, button)
         .then(function (attendanceToken) {
             button.innerHTML = '<i class="fa-solid fa-location-crosshairs"></i> Getting Location...';
 
             return getBestStudentLocationPosition(function(currentAccuracy, bestSample) {
                 const bestAcc = bestSample && bestSample.coords ? Math.round(bestSample.coords.accuracy) : Math.round(currentAccuracy);
-                button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> GPS: ' + bestAcc + 'm';
+                const sampleCount = window.AttendifyGeo && bestSample && bestSample.meta ? bestSample.meta.sampleCount : 0;
+                
+                let text = '<i class="fa-solid fa-spinner fa-spin"></i> GPS: ±' + bestAcc + 'm';
+                if (sampleCount > 0) text += ' (' + sampleCount + ' samples)';
+                
+                button.innerHTML = text;
+
+                // Show tip if accuracy is stuck high
+                if (bestAcc > 100 && Date.now() - lastTipAt > 10000) {
+                    lastTipAt = Date.now();
+                    showMessage(
+                        "GPS accuracy is weak. Please turn on precise location, move near a window, wait a few seconds, and try again.",
+                        "error"
+                    );
+                }
             }).then(function (position) {
                 return {
                     position: position,
@@ -257,6 +273,7 @@ function markAttendance(sessionId, button) {
                     latitude: position.coords.latitude,
                     longitude: position.coords.longitude,
                     accuracy: position.coords.accuracy,
+                    locationMeta: position.meta || null,
                     attendanceToken: attendanceToken,
                     browserFingerprint: getBrowserFingerprint()
                 })
@@ -279,7 +296,13 @@ function markAttendance(sessionId, button) {
                 return;
             }
 
-            showMessage(data.message || "Could not mark attendance.", "error");
+            const failMessage =
+                data.retryGps || (data.message && data.message.toLowerCase().indexOf("gps") !== -1)
+                    ? data.message ||
+                      "GPS accuracy is weak. Please turn on precise location, move near a window, wait a few seconds, and try again."
+                    : data.message || "Could not mark attendance.";
+
+            showMessage(failMessage, "error");
             resetAttendanceButton(button, oldHtml);
         })
         .catch(function (err) {
@@ -366,10 +389,43 @@ function getStudentLocationErrorMessage(error, permissionState) {
     return "Please allow location access to mark attendance.";
 }
 
+function getActiveSessionRadiusHint() {
+    const bootstrapEl = document.getElementById("studentLiveSessionBootstrap");
+
+    if (bootstrapEl && bootstrapEl.textContent) {
+        try {
+            const rows = JSON.parse(bootstrapEl.textContent);
+
+            if (Array.isArray(rows) && rows.length > 0 && rows[0].radius) {
+                return Number(rows[0].radius);
+            }
+        } catch (e) {
+            // ignore
+        }
+    }
+
+    const liveBtn = document.querySelector(".js-mark-attendance-btn[data-session-id]");
+
+    if (liveBtn) {
+        const card = liveBtn.closest("[data-schedule-id]");
+
+        if (card && card.getAttribute("data-classroom-radius")) {
+            return Number(card.getAttribute("data-classroom-radius"));
+        }
+    }
+
+    return 100;
+}
+
 function getBestStudentLocationPosition(onProgress) {
-    // Use AttendifyGeo engine if available (weighted centroid + outlier rejection)
+    const radiusHint = getActiveSessionRadiusHint();
+    const geoOptions =
+        window.AttendifyGeo && typeof window.AttendifyGeo.getCollectionOptionsForRadius === "function"
+            ? window.AttendifyGeo.getCollectionOptionsForRadius(radiusHint)
+            : null;
+
     if (window.AttendifyGeo && typeof window.AttendifyGeo.getBestPosition === "function") {
-        return window.AttendifyGeo.getBestPosition(onProgress);
+        return window.AttendifyGeo.getBestPosition(onProgress, geoOptions);
     }
 
     // Fallback: original simple sampler
@@ -380,14 +436,20 @@ function getBestStudentLocationPosition(onProgress) {
         let watchId = null;
         let timeoutId = null;
 
-        const targetAccuracyMeters = 20;
-        const acceptableAccuracyMeters = 50;
+        const targetAccuracyMeters = 10;
+        const acceptableAccuracyMeters = 25;
         const minimumSamples = 4;
+        const minCollectionMs = 10000;
         const maxWaitMs = 20000;
+        const startTime = Date.now();
 
         function cleanup() {
             if (timeoutId) clearTimeout(timeoutId);
             if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+        }
+
+        function minCollectionReached() {
+            return Date.now() - startTime >= minCollectionMs;
         }
 
         function getAccuracy(position) {
@@ -416,12 +478,41 @@ function getBestStudentLocationPosition(onProgress) {
 
         function addSample(position) {
             if (finished || !position || !position.coords) return;
-            samples.push(position);
+
+            const lat = Number(position.coords.latitude);
+            const lon = Number(position.coords.longitude);
             const accuracy = getAccuracy(position);
-            if (onProgress && typeof onProgress === "function") onProgress(accuracy, getBestSample());
-            if (accuracy <= targetAccuracyMeters && samples.length >= minimumSamples) { finish(); return; }
+
+            if (
+                !Number.isFinite(lat) ||
+                !Number.isFinite(lon) ||
+                accuracy <= 0 ||
+                accuracy > 500
+            ) {
+                return;
+            }
+
+            samples.push(position);
+
+            if (onProgress && typeof onProgress === "function") {
+                onProgress(accuracy, getBestSample());
+            }
+
+            if (!minCollectionReached()) {
+                return;
+            }
+
+            if (accuracy <= targetAccuracyMeters && samples.length >= minimumSamples) {
+                finish();
+                return;
+            }
+
             if (samples.length >= minimumSamples && accuracy <= acceptableAccuracyMeters) {
-                setTimeout(function () { if (!finished) finish(); }, 1500);
+                setTimeout(function () {
+                    if (!finished) {
+                        finish();
+                    }
+                }, 1200);
             }
         }
 

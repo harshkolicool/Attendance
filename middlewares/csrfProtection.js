@@ -133,6 +133,16 @@ function injectGlobalAssets(html) {
         }
     }
 
+    if (!output.includes("/js/locationStabilizer.js")) {
+        const stabilizerScript = '\n<script src="/js/locationStabilizer.js"></script>\n';
+
+        if (output.includes("</body>")) {
+            output = output.replace("</body>", stabilizerScript + "</body>");
+        } else {
+            output += stabilizerScript;
+        }
+    }
+
     if (!output.includes("/js/uiShell.js")) {
         const uiScript = '\n<script src="/js/uiShell.js" defer></script>\n';
 
@@ -166,6 +176,19 @@ function injectGlobalAssets(html) {
             output = output.replace("</body>", teacherNavScript + "</body>");
         } else {
             output += teacherNavScript;
+        }
+    }
+
+    if (
+        (output.includes("/css/adminTheme.css") || output.includes("adminTheme.css")) &&
+        !output.includes("/js/adminRealtime.js")
+    ) {
+        const adminRealtimeScript = '\n<script src="/js/adminRealtime.js"></script>\n';
+
+        if (output.includes("</body>")) {
+            output = output.replace("</body>", adminRealtimeScript + "</body>");
+        } else {
+            output += adminRealtimeScript;
         }
     }
 

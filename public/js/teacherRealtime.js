@@ -1,4 +1,21 @@
 document.addEventListener("DOMContentLoaded", function () {
+    const config = window.AttendifyRealtimeConfig || { mode: "socket" };
+
+    if (config.mode !== "socket") {
+        window.addEventListener("attendify:poll-data", function(e) {
+            const data = e.detail;
+            if (!data) return;
+            
+            // If new suspicious attempts arrive, we could render them
+            if (data.recentSuspiciousAttempts) {
+                // (Optional: handle polling response data if needed)
+            }
+        });
+        
+        loadRecentSuspiciousAttempts();
+        return;
+    }
+
     if (typeof io === "undefined") {
         return;
     }
@@ -33,6 +50,7 @@ document.addEventListener("DOMContentLoaded", function () {
     if (socket.connected) {
         joinTeacherRealtime();
     }
+
 
     function findLiveCard(sessionId) {
         return document.querySelector(".live-card[data-session-id='" + sessionId + "']");

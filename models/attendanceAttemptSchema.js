@@ -110,7 +110,8 @@ const attendanceAttemptSchema = new mongoose.Schema({
     passkeyCredentialId: String,
     browserFingerprint: String,
     userAgent: String,
-    ip: String
+    ip: String,
+    locationMeta: mongoose.Schema.Types.Mixed
 
 }, {
     timestamps: true

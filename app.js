@@ -12,6 +12,7 @@ const connectDB = require("./config/db");
 require("./config/passport");
 
 const csrfProtection = require("./middlewares/csrfProtection");
+const realtimeConfig = require("./utils/realtimeConfig");
 
 const authRoutes = require("./routes/authRoutes");
 const teacherRoutes = require("./routes/teacherRoutes");
@@ -176,28 +177,21 @@ app.use("/teacher", teacherRoutes);
 app.use("/student", studentRoutes);
 app.use("/admin", adminRoutes);
 
+function requestWantsJson(req) {
+    const accept = req.headers.accept || "";
+
+    return req.xhr || req.path.indexOf("/api/") === 0 || accept.includes("application/json");
+}
+
 app.use(function (req, res) {
-    res.status(404).send(
-        '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
-        '<title>404 — Page Not Found | Attendify</title>' +
-        '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">' +
-        '<style>' +
-        '*{margin:0;padding:0;box-sizing:border-box}' +
-        'body{min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f0f2f5;color:#1a1a2e}' +
-        '.error-wrap{text-align:center;padding:3rem 2rem;max-width:480px}' +
-        '.error-code{font-size:6rem;font-weight:800;background:linear-gradient(135deg,#667eea,#764ba2);-webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1}' +
-        '.error-title{font-size:1.5rem;font-weight:600;margin:.75rem 0 .5rem}' +
-        '.error-msg{color:#555;margin-bottom:2rem;line-height:1.6}' +
-        '.error-btn{display:inline-flex;align-items:center;gap:.5rem;padding:.75rem 1.75rem;border:none;border-radius:10px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;font-size:.95rem;font-weight:600;text-decoration:none;cursor:pointer;transition:transform .15s,box-shadow .15s}' +
-        '.error-btn:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(102,126,234,.4)}' +
-        '</style></head><body>' +
-        '<div class="error-wrap">' +
-        '<div class="error-code">404</div>' +
-        '<h1 class="error-title">Page Not Found</h1>' +
-        '<p class="error-msg">The page you are looking for does not exist or has been moved.</p>' +
-        '<a href="/" class="error-btn"><i class="fa-solid fa-house"></i> Go Home</a>' +
-        '</div></body></html>'
-    );
+    if (requestWantsJson(req)) {
+        return res.status(404).json({
+            success: false,
+            message: "Page not found."
+        });
+    }
+
+    res.status(404).render("404");
 });
 
 app.use(function (err, req, res, next) {

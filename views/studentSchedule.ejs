@@ -135,6 +135,12 @@
                         No classes scheduled.
                     </div>
                 <% } else { %>
+                    <% if (group.offset === 0) { %>
+                        <div class="gps-help-banner" style="margin-bottom: 15px; padding: 12px; background: rgba(59, 130, 246, 0.1); border-left: 4px solid #3b82f6; border-radius: 4px; font-size: 0.9rem;">
+                            <i class="fa-solid fa-circle-info" style="color: #3b82f6; margin-right: 6px;"></i>
+                            <strong>GPS Tip:</strong> For best accuracy, use mobile Chrome, enable precise location, turn off battery saver, and wait 5–10 seconds.
+                        </div>
+                    <% } %>
                     <div class="schedule-list">
                         <% group.schedules.forEach(function(item) { %>
                             <%
@@ -394,9 +400,19 @@
 
 <script type="application/json" id="studentLiveSessionBootstrap"><%- JSON.stringify(studentLiveBootstrap).replace(/</g, "\\u003c") %></script>
 
+<script>
+    window.AttendifyRealtimeConfig = {
+        mode: "<%= typeof realtimeMode !== 'undefined' ? realtimeMode : 'auto' %>",
+        pollIntervalMs: <%= typeof realtimePollIntervalMs !== 'undefined' ? realtimePollIntervalMs : 5000 %>
+    };
+</script>
+
+<% if (typeof realtimeMode !== 'undefined' && realtimeMode === 'socket') { %>
 <script src="/socket.io/socket.io.js"></script>
+<% } %>
 <script src="https://unpkg.com/@simplewebauthn/browser/dist/bundle/index.umd.min.js"></script>
 <script src="/js/studentPasskey.js"></script>
+<script src="/js/locationStabilizer.js"></script>
 <script src="/js/geoAccuracy.js"></script>
 <script src="/js/studentLocation.js"></script>
 <script src="/js/studentRealtime.js"></script>

@@ -88,7 +88,8 @@ const attendanceRecordSchema = new mongoose.Schema({
         allowedRadius: Number,
         radiusUncertaintyAllowance: Number,
         minimumPossibleDistance: Number,
-        passkeyCredentialId: String
+        passkeyCredentialId: String,
+        locationMeta: mongoose.Schema.Types.Mixed
     },
 
     markedAt: {

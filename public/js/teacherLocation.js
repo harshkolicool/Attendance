@@ -119,10 +119,21 @@
         return "Please allow location access to start attendance.";
     }
 
-    function getBestTeacherLocationPosition(onProgress) {
-        // Use AttendifyGeo engine if available (weighted centroid + outlier rejection)
+    function getBestTeacherLocationPosition(onProgress, formRef) {
+        var radiusHint = 100;
+        var radiusInput = formRef && formRef.querySelector("input[name='classroomRadius']");
+
+        if (radiusInput && radiusInput.value) {
+            radiusHint = Number(radiusInput.value);
+        }
+
+        var geoOptions =
+            window.AttendifyGeo && typeof window.AttendifyGeo.getCollectionOptionsForRadius === "function"
+                ? window.AttendifyGeo.getCollectionOptionsForRadius(radiusHint)
+                : null;
+
         if (window.AttendifyGeo && typeof window.AttendifyGeo.getBestPosition === "function") {
-            return window.AttendifyGeo.getBestPosition(onProgress);
+            return window.AttendifyGeo.getBestPosition(onProgress, geoOptions);
         }
 
         // Fallback: original simple sampler
@@ -133,10 +144,12 @@
             var watchId    = null;
             var timeoutId  = null;
 
-            var targetAccuracyMeters     = 15;
-            var acceptableAccuracyMeters = 40;
+            var targetAccuracyMeters     = 10;
+            var acceptableAccuracyMeters = 25;
             var minimumSamples           = 4;
+            var minCollectionMs          = 10000;
             var maxWaitMs                = 20000;
+            var startTime                = Date.now();
 
             function cleanup() {
                 if (timeoutId) clearTimeout(timeoutId);
@@ -167,14 +180,35 @@
                 resolve(getBestSample());
             }
 
+            function minCollectionReached() {
+                return Date.now() - startTime >= minCollectionMs;
+            }
+
             function addSample(position) {
                 if (finished || !position || !position.coords) return;
-                samples.push(position);
+
+                var lat = Number(position.coords.latitude);
+                var lon = Number(position.coords.longitude);
                 var accuracy = getAccuracy(position);
+
+                if (!Number.isFinite(lat) || !Number.isFinite(lon) || accuracy <= 0 || accuracy > 500) {
+                    return;
+                }
+
+                samples.push(position);
                 if (onProgress && typeof onProgress === "function") onProgress(accuracy, getBestSample());
-                if (samples.length >= minimumSamples && accuracy <= targetAccuracyMeters) { finish(); return; }
+
+                if (!minCollectionReached()) {
+                    return;
+                }
+
+                if (samples.length >= minimumSamples && accuracy <= targetAccuracyMeters) {
+                    finish();
+                    return;
+                }
+
                 if (samples.length >= minimumSamples && accuracy <= acceptableAccuracyMeters) {
-                    setTimeout(function () { if (!finished) finish(); }, 1500);
+                    setTimeout(function () { if (!finished) finish(); }, 1200);
                 }
             }
 
@@ -220,17 +254,42 @@
 
         const oldText = setButtonLoading(form, "Getting Location...");
         const button = getStartButton(form);
+        let lastTipAt = 0;
 
         getBestTeacherLocationPosition(function(currentAccuracy, bestSample) {
             if (button) {
                 const bestAcc = bestSample && bestSample.coords ? Math.round(bestSample.coords.accuracy) : Math.round(currentAccuracy);
-                button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> GPS: ' + bestAcc + 'm';
+                const sampleCount = window.AttendifyGeo && bestSample && bestSample.meta ? bestSample.meta.sampleCount : 0;
+                
+                let text = '<i class="fa-solid fa-spinner fa-spin"></i> GPS: ±' + bestAcc + 'm';
+                if (sampleCount > 0) text += ' (' + sampleCount + ' samples)';
+                
+                button.innerHTML = text;
+                
+                // Show tip if accuracy is stuck high
+                if (bestAcc > 100 && Date.now() - lastTipAt > 10000) {
+                    lastTipAt = Date.now();
+                    showLocationError(
+                        "GPS accuracy is weak. Please turn on precise location, move near a window, wait a few seconds, and try again."
+                    );
+                }
             }
-        })
+        }, form)
             .then(function (position) {
                 inputs.latitudeInput.value = position.coords.latitude;
                 inputs.longitudeInput.value = position.coords.longitude;
                 inputs.accuracyInput.value = position.coords.accuracy;
+
+                if (position.meta) {
+                    let metaInput = form.querySelector("input[name='locationMeta']");
+                    if (!metaInput) {
+                        metaInput = document.createElement("input");
+                        metaInput.type = "hidden";
+                        metaInput.name = "locationMeta";
+                        form.appendChild(metaInput);
+                    }
+                    metaInput.value = JSON.stringify(position.meta);
+                }
 
                 form.dataset.locationPending = "false";
                 HTMLFormElement.prototype.submit.call(form);

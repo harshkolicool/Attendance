@@ -6,6 +6,7 @@ const { Server } = require("socket.io");
 
 const app = require("./app");
 const socketManager = require("./utils/socketManager");
+const realtimeConfig = require("./utils/realtimeConfig");
 
 let startAttendanceExpiryJob = null;
 
@@ -179,26 +180,30 @@ function isOriginAllowed(origin) {
 
 const server = http.createServer(app);
 
-const io = new Server(server, {
-    cors: {
-        origin: function (origin, callback) {
-            if (isOriginAllowed(origin)) {
-                return callback(null, true);
-            }
+if (realtimeConfig.isSocketMode()) {
+    const io = new Server(server, {
+        cors: {
+            origin: function (origin, callback) {
+                if (isOriginAllowed(origin)) {
+                    return callback(null, true);
+                }
 
-            return callback(new Error("Socket origin not allowed by CORS"));
-        },
-        credentials: true
+                return callback(new Error("Socket origin not allowed by CORS"));
+            },
+            credentials: true
+        }
+    });
+
+    const sessionMiddleware = app.get("sessionMiddleware");
+
+    if (sessionMiddleware) {
+        io.engine.use(sessionMiddleware);
     }
-});
 
-const sessionMiddleware = app.get("sessionMiddleware");
-
-if (sessionMiddleware) {
-    io.engine.use(sessionMiddleware);
+    socketManager.initializeSocket(io);
+} else {
+    console.log("Realtime mode: " + realtimeConfig.getRealtimeMode() + " — Socket.IO is disabled.");
 }
-
-socketManager.initializeSocket(io);
 
 if (typeof startAttendanceExpiryJob === "function") {
     startAttendanceExpiryJob();

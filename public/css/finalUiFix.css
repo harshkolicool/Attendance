@@ -1079,3 +1079,199 @@ svg {
 .leaflet-popup-tip-container {
     margin-top: -1px;
 }
+
+/* =========================
+   Live map — stable markers (no visual drift)
+========================= */
+.custom-student-marker,
+.custom-teacher-marker,
+.leaflet-marker-icon {
+    transition: none !important;
+}
+
+.teacher-map-wrapper {
+    touch-action: pan-x pan-y;
+}
+
+.teacher-map-student-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    background: #fff;
+    padding: 12px;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.teacher-map-layout {
+    align-items: stretch;
+}
+
+/* =========================
+   App-wide responsive polish
+========================= */
+.schedule-layout,
+.teacher-layout {
+    width: 100%;
+    min-width: 0;
+}
+
+.student-layout .side-stats,
+.schedule-layout .side-stats {
+    display: grid;
+    gap: 12px;
+}
+
+#messageBox,
+#teacherLocationClientError,
+.alert-box {
+    width: 100%;
+    max-width: 100%;
+}
+
+.success-box,
+.error-box {
+    border-radius: 14px;
+    padding: 12px 14px;
+    font-weight: 800;
+    line-height: 1.45;
+    word-break: break-word;
+}
+
+.view-btn,
+.start-btn,
+.end-btn,
+.js-mark-attendance-btn {
+    width: 100%;
+    max-width: 100%;
+}
+
+.class-card {
+    overflow: hidden;
+}
+
+.teacher-dashboard-page .teacher-profile-panel,
+.teacher-dashboard-page .teacher-map-card,
+.teacher-dashboard-page .panel-box,
+.teacher-dashboard-page .suspicious-attempts-card {
+    width: 100%;
+    min-width: 0;
+}
+
+@media (max-width: 1180px) {
+    .schedule-layout,
+    .teacher-layout {
+        grid-template-columns: var(--shell-sidebar-width) minmax(0, 1fr) !important;
+    }
+
+    .student-layout .side-stats,
+    .schedule-layout .side-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 900px) {
+    .teacher-dashboard-page .content-area {
+        gap: 16px;
+    }
+
+    .teacher-map-head {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .teacher-map-stats {
+        flex-wrap: wrap;
+    }
+
+    .teacher-map-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .teacher-map-select {
+        width: 100%;
+    }
+
+    .teacher-map-actions {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    .student-layout .side-stats,
+    .schedule-layout .side-stats {
+        grid-template-columns: 1fr;
+    }
+
+    .student-main .class-card {
+        padding: 14px;
+    }
+
+    .student-main .class-content,
+    .student-main .class-body {
+        gap: 10px;
+    }
+
+    .js-mark-attendance-btn {
+        min-height: 50px;
+        font-size: 15px;
+    }
+}
+
+@media (max-width: 640px) {
+    .admin-main,
+    .student-main,
+    .teacher-main,
+    .platform-main,
+    .schedule-main {
+        padding: 16px 14px !important;
+    }
+
+    .teacher-dashboard-page .date-box {
+        width: 52px;
+        height: 52px;
+    }
+
+    .teacher-dashboard-page .date-box span {
+        font-size: 24px;
+    }
+
+    .teacher-dashboard-page .teacher-schedule-class-card.class-card {
+        padding: 14px;
+        gap: 12px;
+    }
+
+    .teacher-dashboard-page .teacher-schedule-card-action,
+    .teacher-dashboard-page .teacher-schedule-card-action form,
+    .teacher-dashboard-page .teacher-schedule-card-action .start-btn {
+        width: 100%;
+    }
+
+    .teacher-map-wrapper {
+        min-height: 240px;
+    }
+
+    .teacher-map {
+        min-height: 240px;
+    }
+
+    .teacher-map-roster-wrap {
+        max-height: 280px;
+    }
+
+    .platform-stats-grid,
+    .teacher-dashboard-page .stats-row {
+        grid-template-columns: 1fr !important;
+    }
+
+    .notification-open-link {
+        flex: 1 1 100% !important;
+        max-width: 100% !important;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .teacher-dashboard-page .live-dot,
+    .ui-sidebar * {
+        animation: none !important;
+        transition: none !important;
+    }
+}

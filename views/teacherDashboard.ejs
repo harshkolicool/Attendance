@@ -300,6 +300,11 @@
                     </div>
                 </div>
 
+                <div class="gps-help-banner" style="margin: 0 20px 15px 20px; padding: 12px; background: rgba(59, 130, 246, 0.1); border-left: 4px solid #3b82f6; border-radius: 4px; font-size: 0.9rem;">
+                    <i class="fa-solid fa-circle-info" style="color: #3b82f6; margin-right: 6px;"></i>
+                    <strong>GPS Tip:</strong> For best accuracy when starting class, enable precise location, step away from thick walls, and wait a few seconds.
+                </div>
+
                 <% if (scheduleCards.length === 0) { %>
                     <div class="empty-box">
                         <div><i class="fa-solid fa-calendar-xmark"></i></div>
@@ -512,6 +517,7 @@
                                                         <input type="hidden" name="teacherLatitude" value="">
                                                         <input type="hidden" name="teacherLongitude" value="">
                                                         <input type="hidden" name="teacherAccuracy" value="">
+                                                        <input type="hidden" name="classroomRadius" value="<%= item.classroom.radius || 100 %>">
 
                                                         <button class="start-btn" type="submit">
                                                             <% if (card.canRestart) { %>
@@ -707,7 +713,9 @@
                     classGroupName: session.classGroup ? session.classGroup.name : "Class",
                     latitude: Number(session.latitude || 0),
                     longitude: Number(session.longitude || 0),
-                    radius: Number(session.radius || 0)
+                    radius: Number(session.radius || 0),
+                    configuredRadius: Number(session.radius || 0),
+                    effectiveRadius: Number(session.radius || 0)
                 };
             });
         %>
@@ -739,6 +747,28 @@
                     <i class="fa-solid fa-calendar-check select-shell-icon"></i>
                     <select id="teacherMapSessionSelect" class="teacher-map-select" aria-label="Select live session"></select>
                     <i class="fa-solid fa-chevron-down select-shell-chevron"></i>
+                </div>
+
+                <div class="teacher-map-actions" role="group" aria-label="Map controls">
+                    <button
+                        id="teacherMapFitButton"
+                        class="teacher-map-icon-button"
+                        type="button"
+                        title="Fit live devices"
+                        aria-label="Fit live devices"
+                    >
+                        <i class="fa-solid fa-expand"></i>
+                    </button>
+
+                    <button
+                        id="teacherMapCenterButton"
+                        class="teacher-map-icon-button"
+                        type="button"
+                        title="Center classroom"
+                        aria-label="Center classroom"
+                    >
+                        <i class="fa-solid fa-crosshairs"></i>
+                    </button>
                 </div>
             </div>
 
@@ -828,9 +858,19 @@
 
 <script type="application/json" id="teacherLiveMapBootstrap"><%- JSON.stringify(liveMapBootstrap).replace(/</g, "\\u003c") %></script>
 
+<script src="/js/locationStabilizer.js"></script>
 <script src="/js/geoAccuracy.js"></script>
 <script src="/js/teacherLocation.js"></script>
+<script>
+    window.AttendifyRealtimeConfig = {
+        mode: "<%= typeof realtimeMode !== 'undefined' ? realtimeMode : 'auto' %>",
+        pollIntervalMs: <%= typeof realtimePollIntervalMs !== 'undefined' ? realtimePollIntervalMs : 5000 %>
+    };
+</script>
+
+<% if (typeof realtimeMode !== 'undefined' && realtimeMode === 'socket') { %>
 <script src="/socket.io/socket.io.js"></script>
+<% } %>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="/js/teacherRealtime.js"></script>
 <script src="/js/teacherNav.js"></script>

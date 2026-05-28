@@ -15,9 +15,15 @@ const { sortSchedulesByTime } = require("../utils/scheduleTime");
 const {
     evaluateLocationRange,
     getLocationDecisionMessage,
+    getWeakGpsUserMessage,
+    shouldEmitSuspiciousAttempt,
+    logGpsDecision,
     MAX_GPS_ACCURACY_METERS
 } = require("../utils/locationVerification");
+const liveLocationStore = require("../utils/liveLocationStore");
+const gpsPeerCalibration = require("../utils/gpsPeerCalibration");
 const socketManager = require("../utils/socketManager");
+const realtimeConfig = require("../utils/realtimeConfig");
 const crypto = require("crypto");
 const {
     createNotification,
@@ -548,11 +554,13 @@ async function saveAttendanceAttempt(options) {
             passkeyCredentialId: options.passkeyCredentialId || "",
             browserFingerprint: options.browserFingerprint || "",
             userAgent: req ? req.headers["user-agent"] : "",
-            ip: req ? getClientIp(req) : ""
+            ip: req ? getClientIp(req) : "",
+            locationMeta: options.locationMeta || null
         });
 
         if (
             attempt.result !== "SUCCESS" &&
+            shouldEmitSuspiciousAttempt(attempt.reasonCode) &&
             socketManager &&
             typeof socketManager.emitSuspiciousAttendanceAttempt === "function"
         ) {
@@ -562,6 +570,158 @@ async function saveAttendanceAttempt(options) {
         console.log("SAVE ATTENDANCE ATTEMPT ERROR:");
         console.log(err.message);
     }
+}
+
+function isValidLiveCoordinate(latitude, longitude) {
+    const lat = Number(latitude);
+    const lon = Number(longitude);
+
+    return (
+        Number.isFinite(lat) &&
+        Number.isFinite(lon) &&
+        lat >= -90 &&
+        lat <= 90 &&
+        lon >= -180 &&
+        lon <= 180
+    );
+}
+
+function evaluateStudentLocation(session, student, body, peerDevices) {
+    const latitude = Number(body.latitude);
+    const longitude = Number(body.longitude);
+    const accuracy = Number(body.accuracy);
+    const centerLat = Number(session.latitude || 0);
+    const centerLon = Number(session.longitude || 0);
+    const radius = Number(session.radius || 0);
+    const teacherGpsAccuracy = Number(session.teacherGpsAccuracy || 0);
+
+    function evaluateAtCoordinates(checkLat, checkLon) {
+        return evaluateLocationRange(
+            centerLat,
+            centerLon,
+            checkLat,
+            checkLon,
+            radius,
+            accuracy,
+            teacherGpsAccuracy,
+            {
+                studentLocationMeta: body.locationMeta || null,
+                teacherLocationMeta: session.locationMeta || null,
+                logContext: "student-location"
+            }
+        );
+    }
+
+    let evaluation = evaluateAtCoordinates(latitude, longitude);
+
+    const calibrated = gpsPeerCalibration.applyPeerCalibration(
+        evaluation,
+        centerLat,
+        centerLon,
+        latitude,
+        longitude,
+        radius,
+        accuracy,
+        teacherGpsAccuracy,
+        peerDevices || [],
+        student._id,
+        function (snapLat, snapLon) {
+            return evaluateAtCoordinates(snapLat, snapLon);
+        }
+    );
+
+    return {
+        evaluation: calibrated.evaluation,
+        displayLatitude: calibrated.displayLatitude,
+        displayLongitude: calibrated.displayLongitude,
+        rawLatitude: calibrated.rawLatitude,
+        rawLongitude: calibrated.rawLongitude,
+        gpsCorrected: calibrated.adjusted
+    };
+}
+
+function buildLiveLocationPayload(session, student, body, peerDevices) {
+    const latitude = Number(body.latitude);
+    const longitude = Number(body.longitude);
+    const accuracy = Number(body.accuracy);
+    const result = evaluateStudentLocation(session, student, body, peerDevices);
+    const evaluation = result.evaluation;
+
+    const status =
+        evaluation.isAccuracyPoor && !evaluation.isOutside
+            ? "POOR_ACCURACY"
+            : evaluation.status;
+
+    return {
+        sessionId: session._id.toString(),
+        studentId: student._id.toString(),
+        studentName: student.fullName || "Student",
+        enrollmentNumber: student.enrollmentNumber || student.email || "",
+        deviceId: body.deviceId ? String(body.deviceId).slice(0, 120) : "default",
+        deviceLabel: body.deviceLabel ? String(body.deviceLabel).slice(0, 80) : "Device",
+        latitude: result.displayLatitude,
+        longitude: result.displayLongitude,
+        rawLatitude: result.rawLatitude,
+        rawLongitude: result.rawLongitude,
+        gpsCorrected: Boolean(result.gpsCorrected),
+        accuracy: Number.isFinite(accuracy) ? accuracy : null,
+        distance: Math.round(evaluation.measuredDistance),
+        distanceLabel: evaluation.distanceLabel || "",
+        configuredRadius: Math.round(evaluation.configuredRadius),
+        effectiveRadius: Math.round(evaluation.effectiveRadius),
+        uncertaintyAllowance: Math.round(evaluation.uncertaintyAllowance),
+        inside: !evaluation.isOutside,
+        status: status,
+        reasonCode: evaluation.reasonCode,
+        updatedAt: new Date(),
+        online: true
+    };
+}
+
+async function persistStudentLiveLocation(payload) {
+    const deviceDoc = {
+        student: payload.studentId,
+        studentName: payload.studentName || "Student",
+        enrollmentNumber: payload.enrollmentNumber || "",
+        deviceId: payload.deviceId || "default",
+        deviceLabel: payload.deviceLabel || "Device",
+        latitude: Number(payload.latitude),
+        longitude: Number(payload.longitude),
+        accuracy:
+            payload.accuracy === null || payload.accuracy === undefined
+                ? null
+                : Number(payload.accuracy),
+        distance: Number(payload.distance || 0),
+        configuredRadius: Number(payload.configuredRadius || 0),
+        effectiveRadius: Number(payload.effectiveRadius || 0),
+        uncertaintyAllowance: Number(payload.uncertaintyAllowance || 0),
+        inside: Boolean(payload.inside),
+        status: payload.status || "UNKNOWN",
+        reasonCode: payload.reasonCode || "",
+        online: payload.online !== false,
+        lastActiveAt: payload.updatedAt || new Date()
+    };
+
+    await AttendanceSession.updateOne(
+        { _id: payload.sessionId },
+        {
+            $pull: {
+                liveDevices: {
+                    student: payload.studentId,
+                    deviceId: payload.deviceId || "default"
+                }
+            }
+        }
+    );
+
+    await AttendanceSession.updateOne(
+        { _id: payload.sessionId },
+        {
+            $push: {
+                liveDevices: deviceDoc
+            }
+        }
+    );
 }
 
 async function getStudentPageData(req) {
@@ -770,6 +930,8 @@ async function getStudentPageData(req) {
         hasPasskey: getPasskeyCount(student) > 0,
         hasTrustedDevice: !!getTrustedDeviceFromStudent(student, req),
         hasUsableTrustedDevice: isTrustedDeviceUsable(getTrustedDeviceFromStudent(student, req)),
+        realtimeMode: realtimeConfig.getRealtimeMode(),
+        realtimePollIntervalMs: realtimeConfig.getPollIntervalMs(),
         attendanceWindow: attendanceWindow
     };
 }
@@ -1006,7 +1168,9 @@ router.get("/schedule", isStudent, async function (req, res) {
             trustedDeviceCount: getActiveTrustedDeviceCount(student),
             hasPasskey: getPasskeyCount(student) > 0,
             hasTrustedDevice: !!getTrustedDeviceFromStudent(student, req),
-            hasUsableTrustedDevice: isTrustedDeviceUsable(getTrustedDeviceFromStudent(student, req))
+            hasUsableTrustedDevice: isTrustedDeviceUsable(getTrustedDeviceFromStudent(student, req)),
+            realtimeMode: realtimeConfig.getRealtimeMode(),
+            realtimePollIntervalMs: realtimeConfig.getPollIntervalMs()
         });
 
     } catch (err) {
@@ -1679,6 +1843,99 @@ router.get("/attendance/device-token/:sessionId", isStudent, async function (req
     }
 });
 
+router.post("/live-location/update", isStudent, async function (req, res) {
+    try {
+        const studentId = getStudentIdFromRequest(req);
+        const sessionId = req.body.sessionId ? String(req.body.sessionId) : "";
+
+        if (!sessionId || !mongoose.Types.ObjectId.isValid(sessionId)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid live session."
+            });
+        }
+
+        if (!isValidLiveCoordinate(req.body.latitude, req.body.longitude)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid live location."
+            });
+        }
+
+        const accuracy = Number(req.body.accuracy);
+
+        if (!Number.isFinite(accuracy) || accuracy <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid GPS accuracy."
+            });
+        }
+
+        const student = await Student.findOne({
+            _id: studentId,
+            isDeleted: { $ne: true },
+            isBlocked: { $ne: true }
+        }).select("fullName enrollmentNumber email college classGroup");
+
+        if (!student || !student.college || !student.classGroup) {
+            return res.status(403).json({
+                success: false,
+                message: "Student live location is not available."
+            });
+        }
+
+        const locationGraceEnd = new Date(Date.now() - 2 * 60 * 1000);
+        const session = await AttendanceSession.findOne({
+            _id: sessionId,
+            college: student.college,
+            classGroup: student.classGroup,
+            isActive: true,
+            status: "ACTIVE",
+            endTime: { $gt: locationGraceEnd }
+        }).select("_id teacher college classGroup latitude longitude radius teacherGpsAccuracy endTime");
+
+        if (!session) {
+            return res.status(404).json({
+                success: false,
+                message: "Live attendance session was not found."
+            });
+        }
+
+        const centerLat = Number(session.latitude || 0);
+        const centerLon = Number(session.longitude || 0);
+        const radius = Number(session.radius || 0);
+
+        if (
+            !Number.isFinite(centerLat) ||
+            !Number.isFinite(centerLon) ||
+            radius <= 0
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Attendance session location is not configured."
+            });
+        }
+
+        const peerSnapshot = liveLocationStore.getSnapshot(session._id);
+        const payload = buildLiveLocationPayload(session, student, req.body, peerSnapshot);
+
+        await persistStudentLiveLocation(payload);
+
+        res.json({
+            success: true,
+            location: payload
+        });
+    } catch (err) {
+        console.log("STUDENT LIVE LOCATION UPDATE ERROR:");
+        console.log(err.message);
+
+        res.status(500).json({
+            success: false,
+            message: "Could not update live location."
+        });
+    }
+});
+
 router.post("/attendance/mark", isStudent, async function (req, res) {
     let student = null;
     let session = null;
@@ -1701,6 +1958,7 @@ router.post("/attendance/mark", isStudent, async function (req, res) {
         const latitude = req.body.latitude;
         const longitude = req.body.longitude;
         const accuracy = req.body.accuracy;
+        const locationMeta = req.body.locationMeta;
         const attendanceToken = req.body.attendanceToken;
         const browserFingerprint = req.body.browserFingerprint || "";
 
@@ -1788,7 +2046,8 @@ router.post("/attendance/mark", isStudent, async function (req, res) {
                 latitude,
                 longitude,
                 accuracy,
-                browserFingerprint
+                browserFingerprint,
+                locationMeta
             });
 
             return res.status(400).json({
@@ -1808,7 +2067,8 @@ router.post("/attendance/mark", isStudent, async function (req, res) {
                 latitude,
                 longitude,
                 accuracy,
-                browserFingerprint
+                browserFingerprint,
+                locationMeta
             });
 
             return res.status(403).json({
@@ -1828,7 +2088,8 @@ router.post("/attendance/mark", isStudent, async function (req, res) {
                 latitude,
                 longitude,
                 accuracy,
-                browserFingerprint
+                browserFingerprint,
+                locationMeta
             });
 
             return res.status(403).json({
@@ -1853,7 +2114,8 @@ router.post("/attendance/mark", isStudent, async function (req, res) {
                 latitude,
                 longitude,
                 accuracy,
-                browserFingerprint
+                browserFingerprint,
+                locationMeta
             });
 
             return res.status(403).json({
@@ -1883,35 +2145,6 @@ router.post("/attendance/mark", isStudent, async function (req, res) {
             }
         }
 
-        // ── GPS accuracy pre-check ─────────────────────────────────────────────────
-        // Only hard-block if accuracy is truly unusable (e.g. 500m cached cell reading).
-        // For normal indoor poor-GPS (50–150m), let evaluateLocationRange decide using
-        // the minimum-possible-distance model which accounts for accuracy correctly.
-        const HARD_ACCURACY_BLOCK_METERS = 300; // only block truly broken GPS
-        if (Number(accuracy) > HARD_ACCURACY_BLOCK_METERS) {
-            await saveAttendanceAttempt({
-                req,
-                student,
-                session,
-                result: "REJECTED",
-                reasonCode: "LOW_GPS_ACCURACY",
-                reasonMessage: "GPS accuracy is too low.",
-                latitude,
-                longitude,
-                accuracy,
-                browserFingerprint,
-                passkeyCredentialId: tokenCheck.payload.cid
-            });
-
-            return res.status(403).json({
-                success: false,
-                message:
-                    "GPS accuracy is too poor (" +
-                    Math.round(Number(accuracy)) +
-                    " m). Please step outside or near a window, wait 10 seconds, then try again."
-            });
-        }
-
         const sessionLatitude = session.latitude;
         const sessionLongitude = session.longitude;
         const sessionRadius = Number(session.radius || 100);
@@ -1935,7 +2168,8 @@ router.post("/attendance/mark", isStudent, async function (req, res) {
                 longitude,
                 accuracy,
                 browserFingerprint,
-                passkeyCredentialId: tokenCheck.payload.cid
+                passkeyCredentialId: tokenCheck.payload.cid,
+                locationMeta
             });
 
             return res.status(400).json({
@@ -1944,15 +2178,71 @@ router.post("/attendance/mark", isStudent, async function (req, res) {
             });
         }
 
-        const evaluation = evaluateLocationRange(
-            sessionLatitude,
-            sessionLongitude,
-            latitude,
-            longitude,
-            sessionRadius,
-            studentGpsAccuracy,
-            teacherGpsAccuracy
+        const peerSnapshot = liveLocationStore.getSnapshot(session._id);
+        const locationResult = evaluateStudentLocation(
+            session,
+            student,
+            {
+                latitude: latitude,
+                longitude: longitude,
+                accuracy: studentGpsAccuracy,
+                locationMeta: locationMeta
+            },
+            peerSnapshot
         );
+        const evaluation = locationResult.evaluation;
+
+        logGpsDecision("mark-attendance-result", {
+            studentId: student._id.toString(),
+            sessionId: session._id.toString(),
+            decision: evaluation.decision,
+            reasonCode: evaluation.reasonCode,
+            measuredDistance: evaluation.measuredDistance,
+            rawMeasuredDistance: evaluation.rawMeasuredDistance,
+            minimumPossibleDistance: evaluation.minimumPossibleDistance,
+            combinedAccuracy: evaluation.combinedAccuracy,
+            allowedRadius: evaluation.allowedRadius,
+            studentAccuracy: evaluation.studentAccuracy,
+            teacherAccuracy: evaluation.teacherAccuracy,
+            clearlyOutside: evaluation.clearlyOutside,
+            gpsCorrected: Boolean(locationResult.gpsCorrected),
+            peerInsideCount: evaluation.peerInsideCount
+        });
+
+        if (evaluation.shouldRetry) {
+            await saveAttendanceAttempt({
+                req,
+                student,
+                session,
+                result: "REJECTED",
+                reasonCode: evaluation.reasonCode,
+                reasonMessage: evaluation.userMessage,
+                latitude,
+                longitude,
+                teacherLatitude: sessionLatitude,
+                teacherLongitude: sessionLongitude,
+                distance: evaluation.measuredDistance,
+                allowedRadius: evaluation.configuredRadius,
+                effectiveRadius: evaluation.allowedRadius,
+                accuracy: evaluation.studentAccuracy,
+                browserFingerprint,
+                passkeyCredentialId: tokenCheck.payload.cid,
+                locationMeta
+            });
+
+            return res.status(403).json({
+                success: false,
+                retryGps: true,
+                message: evaluation.userMessage || getWeakGpsUserMessage(),
+                distance: evaluation.measuredDistance,
+                minimumPossibleDistance: evaluation.minimumPossibleDistance,
+                configuredRadius: evaluation.configuredRadius,
+                allowedRadius: Math.round(evaluation.allowedRadius),
+                uncertaintyAllowance: Math.round(evaluation.uncertaintyAllowance),
+                studentAccuracy: Math.round(evaluation.studentAccuracy),
+                teacherAccuracy: Math.round(evaluation.teacherAccuracy)
+            });
+        }
 
         if (evaluation.isOutside) {
             await saveAttendanceAttempt({
@@ -1960,28 +2250,28 @@ router.post("/attendance/mark", isStudent, async function (req, res) {
                 student,
                 session,
                 result: "REJECTED",
-                reasonCode: "OUTSIDE_RADIUS",
-                reasonMessage: getLocationDecisionMessage(evaluation),
+                reasonCode: evaluation.reasonCode || "OUTSIDE_RADIUS",
+                reasonMessage: evaluation.userMessage || getLocationDecisionMessage(evaluation),
                 latitude,
                 longitude,
                 teacherLatitude: sessionLatitude,
                 teacherLongitude: sessionLongitude,
                 distance: evaluation.measuredDistance,
                 allowedRadius: evaluation.configuredRadius,
-                effectiveRadius: evaluation.effectiveRadius,
+                effectiveRadius: evaluation.allowedRadius,
                 accuracy: evaluation.studentAccuracy,
-                teacherAccuracy: evaluation.teacherAccuracy,
                 browserFingerprint,
-                passkeyCredentialId: tokenCheck.payload.cid
+                passkeyCredentialId: tokenCheck.payload.cid,
+                locationMeta
             });
 
             return res.status(403).json({
                 success: false,
-                message: getLocationDecisionMessage(evaluation),
+                message: evaluation.userMessage || getLocationDecisionMessage(evaluation),
                 distance: evaluation.measuredDistance,
                 minimumPossibleDistance: evaluation.minimumPossibleDistance,
                 configuredRadius: evaluation.configuredRadius,
-                effectiveRadius: Math.round(evaluation.effectiveRadius),
+                allowedRadius: Math.round(evaluation.allowedRadius),
                 uncertaintyAllowance: Math.round(evaluation.uncertaintyAllowance),
                 studentAccuracy: Math.round(evaluation.studentAccuracy),
                 teacherAccuracy: Math.round(evaluation.teacherAccuracy)
@@ -2013,7 +2303,8 @@ router.post("/attendance/mark", isStudent, async function (req, res) {
             allowedRadius: evaluation.configuredRadius,
             radiusUncertaintyAllowance: evaluation.uncertaintyAllowance,
             minimumPossibleDistance: evaluation.minimumPossibleDistance || 0,
-            passkeyCredentialId: tokenCheck.payload.cid
+            passkeyCredentialId: tokenCheck.payload.cid,
+            locationMeta: locationMeta
         };
 
         // ── OLD RECORD DELETION PATH ──────────────────────────────────────────
@@ -2443,7 +2734,9 @@ router.get("/attendance-history", isStudent, async function (req, res) {
             subjectWiseAttendance: subjectWiseAttendance,
             suspiciousAttempts: suspiciousAttempts,
             subjectSummary: subjectSummary,
-            summary: summary
+            summary: summary,
+            realtimeMode: realtimeConfig.getRealtimeMode(),
+            realtimePollIntervalMs: realtimeConfig.getPollIntervalMs()
         });
 
     } catch (err) {
@@ -3002,6 +3295,36 @@ router.get("/attendance-history/export", isStudent, async function (req, res) {
         console.log(err.stack);
 
         res.redirect("/student/attendance-history");
+    }
+});
+
+// ── REALTIME POLLING FALLBACK ────────────────────────────────────────────────
+router.get("/realtime/poll", isStudent, async function (req, res) {
+    try {
+        const studentId = getStudentIdFromRequest(req);
+        const student = await Student.findById(studentId);
+
+        if (!student) {
+            return res.json({ success: false });
+        }
+
+        const unreadCount = await getUnreadCount(student._id.toString(), "STUDENT");
+
+        // We could also fetch active sessions, attendance states, etc., 
+        // to fully drive the UI without page reloads.
+        // For simplicity right now, we return the minimum needed.
+        // Complex UI state syncing is handled via `uiShell.js` triggering page reloads 
+        // when necessary.
+
+        res.json({
+            success: true,
+            serverTimestamp: Date.now(),
+            unreadNotificationCount: unreadCount,
+            // activeSessions: [] - placeholder for future deeper polling
+            // attendanceStates: {} - placeholder
+        });
+    } catch (err) {
+        res.json({ success: false });
     }
 });
 

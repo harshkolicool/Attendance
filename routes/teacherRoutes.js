@@ -1,6 +1,12 @@
 const socketManager = require("../utils/socketManager");
+const realtimeConfig = require("../utils/realtimeConfig");
 const express = require("express");
-const { MAX_GPS_ACCURACY_METERS } = require("../utils/locationVerification");
+const {
+    MAX_GPS_ACCURACY_METERS,
+    isUsableAccuracy,
+    isValidCoordinate,
+    logGpsDecision
+} = require("../utils/locationVerification");
 const router = express.Router();
 
 const Schedule = require("../models/scheduleSchema");
@@ -129,36 +135,8 @@ function getTeacherNotificationFilter(teacher) {
     };
 }
 
-function isValidLatitude(value) {
-    const latitude = Number(value);
-
-    return (
-        Number.isFinite(latitude) &&
-        latitude >= -90 &&
-        latitude <= 90
-    );
-}
-
-function isValidLongitude(value) {
-    const longitude = Number(value);
-
-    return (
-        Number.isFinite(longitude) &&
-        longitude >= -180 &&
-        longitude <= 180
-    );
-}
-
-function isValidGpsAccuracy(value) {
-    const accuracy = Number(value);
-
-    return (
-        Number.isFinite(accuracy) &&
-        accuracy > 0 &&
-        accuracy <= MAX_GPS_ACCURACY_METERS
-    );
-}
-
+// isValidGpsAccuracy and isValidLatitude/Longitude are now handled by locationVerification.js
+// so we don't need these standalone functions here anymore.
 
 function isTeacher(req, res, next) {
     if (!req.isAuthenticated()) {
@@ -315,6 +293,44 @@ function teacherSendCsvResponse(res, filename, rows) {
     );
 
     res.send(csvContent);
+}
+
+function mapTeacherLiveDevice(device, sessionId) {
+    if (!device || !device.student) {
+        return null;
+    }
+
+    const studentId = device.student._id
+        ? device.student._id.toString()
+        : device.student.toString();
+
+    if (!studentId) {
+        return null;
+    }
+
+    return {
+        sessionId: sessionId.toString(),
+        studentId: studentId,
+        studentName: device.studentName || "Student",
+        enrollmentNumber: device.enrollmentNumber || "",
+        deviceId: device.deviceId || "default",
+        deviceLabel: device.deviceLabel || "Device",
+        latitude: Number(device.latitude),
+        longitude: Number(device.longitude),
+        accuracy:
+            device.accuracy === null || device.accuracy === undefined
+                ? null
+                : Number(device.accuracy),
+        distance: Number(device.distance || 0),
+        configuredRadius: Number(device.configuredRadius || 0),
+        effectiveRadius: Number(device.effectiveRadius || 0),
+        uncertaintyAllowance: Number(device.uncertaintyAllowance || 0),
+        inside: Boolean(device.inside),
+        status: device.status || "UNKNOWN",
+        reasonCode: device.reasonCode || "",
+        updatedAt: device.lastActiveAt || new Date(),
+        online: device.online !== false
+    };
 }
 
 async function getScheduleForTeacher(req) {
@@ -587,6 +603,8 @@ router.get("/dashboard", isTeacher, async (req, res) => {
             scheduleCards: scheduleCards || [],
             manualAttendanceList: manualAttendanceList || [],
             today: today,
+            realtimeMode: realtimeConfig.getRealtimeMode(),
+            realtimePollIntervalMs: realtimeConfig.getPollIntervalMs(),
             message: getSuccessMessage(req.query.message),
             error: getErrorMessage(req.query.error)
         });
@@ -819,6 +837,86 @@ router.get("/suspicious-attempts/recent", isTeacher, async function (req, res) {
     }
 });
 
+router.get("/live-map/session/:sessionId", isTeacher, async function (req, res) {
+    try {
+        const sessionId = req.params.sessionId;
+
+        if (!sessionId || !sessionId.match(/^[0-9a-fA-F]{24}$/)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid attendance session."
+            });
+        }
+
+        const session = await AttendanceSession.findOne({
+            _id: sessionId,
+            teacher: req.user._id,
+            college: req.user.college,
+            isActive: true,
+            status: "ACTIVE"
+        })
+            .select("_id teacher classGroup latitude longitude radius endTime liveDevices")
+            .populate("classGroup", "name");
+
+        if (!session) {
+            return res.status(404).json({
+                success: false,
+                message: "Live attendance session was not found."
+            });
+        }
+
+        const classGroupId = session.classGroup
+            ? session.classGroup._id || session.classGroup
+            : null;
+
+        const students = classGroupId
+            ? await Student.find({
+                college: req.user.college,
+                classGroup: classGroupId,
+                isDeleted: { $ne: true },
+                isBlocked: { $ne: true }
+            })
+                .select("fullName enrollmentNumber email")
+                .sort({ fullName: 1 })
+                .lean()
+            : [];
+
+        const snapshot = Array.isArray(session.liveDevices)
+            ? session.liveDevices
+                .map(function (device) {
+                    return mapTeacherLiveDevice(device, session._id);
+                })
+                .filter(Boolean)
+            : [];
+
+        res.json({
+            success: true,
+            sessionId: session._id.toString(),
+            latitude: Number(session.latitude || 0),
+            longitude: Number(session.longitude || 0),
+            radius: Number(session.radius || 0),
+            endTime: session.endTime,
+            classGroupName: session.classGroup ? session.classGroup.name || "" : "",
+            roster: students.map(function (student) {
+                return {
+                    studentId: student._id.toString(),
+                    fullName: student.fullName || "Student",
+                    enrollmentNumber: student.enrollmentNumber || student.email || ""
+                };
+            }),
+            snapshot: snapshot
+        });
+    } catch (err) {
+        console.log("TEACHER LIVE MAP SESSION ERROR:");
+        console.log(err.message);
+
+        res.status(500).json({
+            success: false,
+            message: "Unable to load live map session."
+        });
+    }
+});
+
 router.post("/attendance/start", isTeacher, async (req, res) => {
     try {
         const durationMinutes = Number(req.body.durationMinutes) || 5;
@@ -826,6 +924,15 @@ router.post("/attendance/start", isTeacher, async (req, res) => {
         const teacherLatitude = req.body.teacherLatitude;
         const teacherLongitude = req.body.teacherLongitude;
         const teacherAccuracy = req.body.teacherAccuracy;
+        
+        let locationMeta = null;
+        if (req.body.locationMeta) {
+            try {
+                locationMeta = typeof req.body.locationMeta === 'string' ? JSON.parse(req.body.locationMeta) : req.body.locationMeta;
+            } catch (e) {
+                console.error("Failed to parse locationMeta:", e);
+            }
+        }
 
         const scheduleItem = await getScheduleForTeacher(req);
 
@@ -847,16 +954,23 @@ router.post("/attendance/start", isTeacher, async (req, res) => {
             return res.redirect("/teacher/dashboard?error=location");
         }
 
-        if (
-            !isValidLatitude(teacherLatitude) ||
-            !isValidLongitude(teacherLongitude)
-        ) {
+        if (!isValidCoordinate(Number(teacherLatitude), Number(teacherLongitude))) {
             return res.redirect("/teacher/dashboard?error=invalid_teacher_location");
         }
 
-        if (!isValidGpsAccuracy(teacherAccuracy)) {
+        if (!isUsableAccuracy(teacherAccuracy)) {
             return res.redirect("/teacher/dashboard?error=teacher_location_accuracy_low");
         }
+
+        logGpsDecision("teacher-start-attendance", {
+            teacherId: (req.user._id || req.user.id).toString(),
+            scheduleId: scheduleItem._id.toString(),
+            teacherLatitude: Number(teacherLatitude),
+            teacherLongitude: Number(teacherLongitude),
+            teacherAccuracy: Number(teacherAccuracy),
+            classroomRadius: Number(scheduleItem.classroom.radius || 100),
+            locationMeta: locationMeta || null
+        });
 
         const timeStatus = getScheduleTimeStatus(
             scheduleItem.startTime,
@@ -907,6 +1021,7 @@ router.post("/attendance/start", isTeacher, async (req, res) => {
             previousSession.longitude = Number(teacherLongitude);
             previousSession.teacherGpsAccuracy = Number(teacherAccuracy);
             previousSession.locationSource = "TEACHER_GPS";
+            previousSession.locationMeta = locationMeta;
             previousSession.radius = scheduleItem.classroom.radius || 100;
 
             // Clear finalization state so the reopened session behaves as open
@@ -930,6 +1045,7 @@ router.post("/attendance/start", isTeacher, async (req, res) => {
                 longitude: Number(teacherLongitude),
                 teacherGpsAccuracy: Number(teacherAccuracy),
                 locationSource: "TEACHER_GPS",
+                locationMeta: locationMeta,
                 radius: scheduleItem.classroom.radius || 100,
 
                 startTime: new Date(),
@@ -2086,5 +2202,46 @@ router.post("/manual-attendance/:scheduleId", isTeacher, async function (req, re
     }
 });
 
+
+// ── REALTIME POLLING FALLBACK ────────────────────────────────────────────────
+router.get("/realtime/poll", isTeacher, async function (req, res) {
+    try {
+        const unreadCount = await getUnreadCount(req.user._id.toString(), "TEACHER");
+
+        // Fetch recent suspicious attempts if any
+        let recentSuspiciousAttempts = null;
+        if (req.query.includeSuspicious === "true") {
+            const AttendanceAttempt = require("../models/attendanceAttemptSchema");
+            const recentAttempts = await AttendanceAttempt.find({
+                "session.teacher": req.user._id,
+                result: "REJECTED"
+            })
+            .sort({ createdAt: -1 })
+            .limit(10)
+            .populate("student", "fullName enrollmentNumber");
+
+            recentSuspiciousAttempts = recentAttempts.map(attempt => ({
+                attemptId: attempt._id.toString(),
+                studentName: attempt.student ? attempt.student.fullName : "Unknown",
+                enrollmentNumber: attempt.student ? attempt.student.enrollmentNumber : "Unknown",
+                reasonCode: attempt.reasonCode,
+                reasonMessage: attempt.reasonMessage,
+                distanceFromTeacher: attempt.distance,
+                allowedRadius: attempt.allowedRadius,
+                gpsAccuracy: attempt.accuracy,
+                createdAt: attempt.createdAt
+            }));
+        }
+
+        res.json({
+            success: true,
+            serverTimestamp: Date.now(),
+            unreadNotificationCount: unreadCount,
+            recentSuspiciousAttempts: recentSuspiciousAttempts
+        });
+    } catch (err) {
+        res.json({ success: false });
+    }
+});
 
 module.exports = router;
